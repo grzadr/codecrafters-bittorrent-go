@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+const shaHashLength = 20
+
 func decodeTorrentFile(path string) Bencoded {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -32,7 +34,7 @@ func TorrentInfo(path string) string {
 
 	pieces := []byte(info["pieces"].(BencodedString))
 
-	for piece := range slices.Chunk(pieces, 20) {
+	for piece := range slices.Chunk(pieces, shaHashLength) {
 		pieceHashes = append(pieceHashes, hex.EncodeToString(piece))
 	}
 
