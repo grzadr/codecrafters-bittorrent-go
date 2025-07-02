@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 )
 
 func decodeTorrentFile(path string) Bencoded {
@@ -26,10 +28,20 @@ func TorrentInfo(path string) string {
 
 	infoHash := hex.EncodeToString(sum[:])
 
+	pieceHashes := make([]string, 0)
+
+	pieces := []byte(info["pieces"].(BencodedString))
+
+	for piece := range slices.Chunk(pieces, 20) {
+		pieceHashes = append(pieceHashes, hex.EncodeToString(piece))
+	}
+
 	return fmt.Sprintf(
-		"Tracker URL: %s\nLength: %d\nInfo hash: %s",
+		"Tracker URL: %s\nLength: %d\nInfo Hash: %s\nPiece Length: %d\nPiece Hashes:\n%s",
 		parsed["announce"],
 		info["length"],
 		infoHash,
+		info["piece length"],
+		strings.Join(pieceHashes, "\n"),
 	)
 }

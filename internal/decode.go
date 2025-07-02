@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
+	"maps"
+	"slices"
 	"strconv"
 )
 
@@ -98,8 +99,6 @@ func (i *ByteIterator) readUpTo(delim byte) (b []byte, num int) {
 		return
 	}
 
-	log.Println("up to", n)
-
 	b, num = i.readBytes(n)
 
 	i.discard(1)
@@ -113,11 +112,10 @@ type Bencoded interface {
 	Encode() []byte
 }
 
-type BencodedString string
+type BencodedString []byte
 
 func NewBencodedString(iter *ByteIterator) BencodedString {
-	lenStr, to := iter.readUpTo(byte(LengthSep))
-	log.Println(string(lenStr), to)
+	lenStr, _ := iter.readUpTo(byte(LengthSep))
 
 	length, _ := strconv.Atoi(string(lenStr))
 	data, n := iter.readBytes(length)
@@ -135,9 +133,14 @@ func (b BencodedString) String() string {
 
 func (b BencodedString) Encode() (encoded []byte) {
 	encoded = make([]byte, 0)
-	fmt.Appendf(encoded, "%d:%s", len(b), b)
+	encoded = fmt.Appendf(encoded, "%d:", len(b))
+	encoded = append(encoded, []byte(b)...)
 
 	return
+}
+
+func (b BencodedString) MarshalText() (text []byte, err error) {
+	return []byte(string([]byte(b))), nil
 }
 
 func (b BencodedString) isBencoded() {}
@@ -156,8 +159,9 @@ func (b BencodedInteger) String() string {
 }
 
 func (b BencodedInteger) Encode() (encoded []byte) {
+	// panic("encode")
 	encoded = []byte{byte(IntegerType)}
-	fmt.Appendf(encoded, "i%d", b)
+	encoded = fmt.Appendf(encoded, "%d", b)
 	encoded = append(encoded, byte(EndChar))
 
 	return
@@ -227,7 +231,10 @@ func (b BencodedMap) String() string {
 func (b BencodedMap) Encode() (encoded []byte) {
 	encoded = []byte{byte(MapType)}
 
-	for key, value := range b {
+	keys := slices.Sorted(maps.Keys(b))
+
+	for _, key := range keys {
+		value := b[key]
 		encoded = append(encoded, BencodedString(key).Encode()...)
 		encoded = append(encoded, value.Encode()...)
 	}
