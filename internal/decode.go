@@ -2,6 +2,7 @@ package internal
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -15,6 +16,12 @@ type ByteIterator struct {
 func NewByteIterator(input string) *ByteIterator {
 	return &ByteIterator{
 		data: []byte(input),
+	}
+}
+
+func NewByteIteratorBytes(input []byte) *ByteIterator {
+	return &ByteIterator{
+		data: input,
 	}
 }
 
@@ -103,6 +110,7 @@ func (i *ByteIterator) readUpTo(delim byte) (b []byte, num int) {
 type Bencoded interface {
 	String() string
 	isBencoded()
+	Encode() []byte
 }
 
 type BencodedString string
@@ -125,6 +133,13 @@ func (b BencodedString) String() string {
 	return string(b)
 }
 
+func (b BencodedString) Encode() (encoded []byte) {
+	encoded = make([]byte, 0)
+	fmt.Appendf(encoded, "%d:%s", len(b), b)
+
+	return
+}
+
 func (b BencodedString) isBencoded() {}
 
 type BencodedInteger int
@@ -138,6 +153,14 @@ func NewBencodedInteger(iter *ByteIterator) BencodedInteger {
 
 func (b BencodedInteger) String() string {
 	return string(strconv.Itoa(int(b)))
+}
+
+func (b BencodedInteger) Encode() (encoded []byte) {
+	encoded = []byte{byte(IntegerType)}
+	fmt.Appendf(encoded, "i%d", b)
+	encoded = append(encoded, byte(EndChar))
+
+	return
 }
 
 func (b BencodedInteger) isBencoded() {}
@@ -162,6 +185,18 @@ func NewBencodedList(iter *ByteIterator) (l BencodedList) {
 
 func (b BencodedList) String() string {
 	return fmt.Sprintf("%+v", []Bencoded(b))
+}
+
+func (b BencodedList) Encode() (encoded []byte) {
+	encoded = []byte{byte(ListType)}
+
+	for _, e := range b {
+		encoded = append(encoded, e.Encode()...)
+	}
+
+	encoded = append(encoded, byte(EndChar))
+
+	return
 }
 
 func (b BencodedList) isBencoded() {}
@@ -189,6 +224,19 @@ func (b BencodedMap) String() string {
 	return fmt.Sprintf("%+v", map[string]Bencoded(b))
 }
 
+func (b BencodedMap) Encode() (encoded []byte) {
+	encoded = []byte{byte(MapType)}
+
+	for key, value := range b {
+		encoded = append(encoded, BencodedString(key).Encode()...)
+		encoded = append(encoded, value.Encode()...)
+	}
+
+	encoded = append(encoded, byte(EndChar))
+
+	return
+}
+
 func (b BencodedMap) isBencoded() {}
 
 func NewBencoded(iter *ByteIterator) Bencoded {
@@ -213,10 +261,12 @@ func NewBencoded(iter *ByteIterator) Bencoded {
 	}
 }
 
-func DecodeBencode(bencodedString string) (b Bencoded, err error) {
+func DecodeBencode(bencodedString string) string {
 	iter := NewByteIterator(bencodedString)
 
-	b = NewBencoded(iter)
+	b := NewBencoded(iter)
 
-	return
+	jsonOutput, _ := json.Marshal(b)
+
+	return string(jsonOutput)
 }
