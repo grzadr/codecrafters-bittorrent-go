@@ -14,7 +14,7 @@ linters:
         main:
           allow:
             - $gostd
-            - github.com/codecrafters-io/redis-starter-go
+            - github.com/codecrafters-io/bittorrent-starter-go/
 formatters:
   # Enable specific formatter.
   # Default: [] (uses standard Go formatting)
