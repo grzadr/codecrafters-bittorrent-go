@@ -144,21 +144,52 @@ func (b BencodedInteger) isBencoded() {}
 
 type BencodedList []Bencoded
 
-func NewBencodedList(iter *ByteIterator) BencodedList {
+func NewBencodedList(iter *ByteIterator) (l BencodedList) {
+	l = make(BencodedList, 0)
+
 	for {
+		b := NewBencoded(iter)
+
+		if b == nil {
+			break
+		}
+
+		l = append(l, b)
 	}
 
-	lenStr, _ := iter.readUpTo(byte(EndChar))
-	num, _ := strconv.Atoi(string(lenStr))
-
-	return BencodedInteger(num)
+	return
 }
 
 func (b BencodedList) String() string {
-	return string(strconv.Itoa(int(b)))
+	return fmt.Sprintf("%+v", []Bencoded(b))
 }
 
 func (b BencodedList) isBencoded() {}
+
+type BencodedMap map[string]Bencoded
+
+func NewBencodedMap(iter *ByteIterator) (m BencodedMap) {
+	m = make(BencodedMap)
+
+	for {
+		key := NewBencoded(iter)
+		value := NewBencoded(iter)
+
+		if key == nil || value == nil {
+			break
+		}
+
+		m[key.String()] = value
+	}
+
+	return
+}
+
+func (b BencodedMap) String() string {
+	return fmt.Sprintf("%+v", map[string]Bencoded(b))
+}
+
+func (b BencodedMap) isBencoded() {}
 
 func NewBencoded(iter *ByteIterator) Bencoded {
 	t, ok := NewBencodeType(iter)
@@ -172,9 +203,9 @@ func NewBencoded(iter *ByteIterator) Bencoded {
 	case IntegerType:
 		return NewBencodedInteger(iter)
 	case ListType:
-		panic("list not implemented")
+		return NewBencodedList(iter)
 	case MapType:
-		panic("map not implemented")
+		return NewBencodedMap(iter)
 	case EndChar:
 		return nil
 	default:
