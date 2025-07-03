@@ -22,7 +22,37 @@ func decodeTorrentFile(path string) Bencoded {
 	return NewBencoded(iter)
 }
 
-func TorrentInfo(path string) string {
+type PieceHashes [][]byte
+
+func NewPieceHashes(pieces []byte) (hashes PieceHashes) {
+	hashes = make(PieceHashes, len(pieces)/shaHashLength)
+
+	for piece := range slices.Chunk([]byte(pieces), shaHashLength) {
+		pieceHashes = append(pieceHashes, hex.EncodeToString(piece))
+	}
+}
+
+type TorrentInfo struct {
+	tracker     string
+	hash        [shaHashLength]byte
+	pieces      PieceHashes
+	length      int
+	pieceLength int
+}
+
+func NewTorrentInfo(torrent BencodedMap) *TorrentInfo {
+	info := torrent["info"].(BencodedMap)
+
+	return &TorrentInfo{
+		tracker:     torrent["announce"].String(),
+		hash:        sha1.Sum(info.Encode()),
+		pieces:      NewPieceHashes(torrent["pieces"].(BencodedString)),
+		length:      int(info["length"].(BencodedInteger)),
+		pieceLength: int(info["piece length"].(BencodedInteger)),
+	}
+}
+
+func ShowTorrentInfo(path string) string {
 	parsed := decodeTorrentFile(path).(BencodedMap)
 	info := parsed["info"].(BencodedMap)
 

@@ -17,7 +17,9 @@ func main() {
 	case "decode":
 		fmt.Println(internal.DecodeBencode(os.Args[2]))
 	case "info":
-		fmt.Println(internal.TorrentInfo(os.Args[2]))
+		fmt.Println(internal.ShowTorrentInfo(os.Args[2]))
+	case "peers":
+		fmt.Println(internal.DetectPeers(os.Args[2]))
 	default:
 		log.Fatalf("Unknown command: %q", command)
 	}
