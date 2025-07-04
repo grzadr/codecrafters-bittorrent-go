@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -100,7 +99,6 @@ func (req DiscoverRequest) build() string {
 // It includes proper timeout handling and error management.
 func (req DiscoverRequest) make() (response BencodedMap) {
 	requestUrl := req.build()
-	log.Println(requestUrl)
 
 	client := &http.Client{
 		Timeout: defaultRequestTimeout,
