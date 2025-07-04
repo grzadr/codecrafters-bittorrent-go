@@ -20,6 +20,8 @@ func main() {
 		fmt.Println(internal.ShowTorrentInfo(os.Args[2]))
 	case "peers":
 		fmt.Println(internal.DetectPeers(os.Args[2]))
+	case "handshake":
+		fmt.Println(internal.MakeHandshake(os.Args[2], os.Args[3]))
 	default:
 		log.Fatalf("Unknown command: %q", command)
 	}

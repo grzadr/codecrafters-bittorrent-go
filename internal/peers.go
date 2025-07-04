@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -20,7 +21,40 @@ const (
 	defaultIpAddressSize  = 6
 )
 
-type TrackerRequest struct {
+type PeerIP struct {
+	ip   net.IP
+	port int
+}
+
+func NewPeerIP(data []byte) PeerIP {
+	return PeerIP{
+		ip:   net.IPv4(data[0], data[1], data[2], data[3]),
+		port: int(binary.BigEndian.Uint16(data[4:])),
+	}
+}
+
+func ParsePeerIP(ip string) PeerIP {
+	addr, port, _ := strings.Cut(ip, ":")
+	portNum, _ := strconv.Atoi(port)
+
+	return PeerIP{
+		ip:   net.ParseIP(addr),
+		port: portNum,
+	}
+}
+
+func (p PeerIP) String() string {
+	return fmt.Sprintf("%s:%d", p.ip, p.port)
+}
+
+func (p PeerIP) TcpAddr() *net.TCPAddr {
+	return &net.TCPAddr{
+		IP:   p.ip,
+		Port: p.port,
+	}
+}
+
+type DiscoverRequest struct {
 	AnnounceURL string
 	InfoHash    []byte
 	PeerID      string
@@ -30,7 +64,19 @@ type TrackerRequest struct {
 	Left        int
 }
 
-func (req TrackerRequest) build() string {
+func NewDiscoverRequest(torrent *TorrentInfo) (req *DiscoverRequest) {
+	return &DiscoverRequest{
+		AnnounceURL: torrent.tracker,
+		InfoHash:    torrent.hash[:],
+		PeerID:      defaultClientId,    // 20-character client identifier
+		Port:        defaultTrackerPort, // Standard BitTorrent port
+		Uploaded:    0,                  // No data uploaded yet
+		Downloaded:  0,                  // No data downloaded yet
+		Left:        torrent.length,     // 1 MB remaining (example)
+	}
+}
+
+func (req DiscoverRequest) build() string {
 	baseURL, err := url.Parse(req.AnnounceURL)
 	if err != nil {
 		panic(fmt.Errorf("invalid announce URL: %w", err))
@@ -52,7 +98,8 @@ func (req TrackerRequest) build() string {
 
 // makeTrackerRequest performs the actual HTTP GET request to the tracker
 // It includes proper timeout handling and error management.
-func makeTrackerRequest(requestUrl string) (response Bencoded) {
+func (req DiscoverRequest) make() (response BencodedMap) {
+	requestUrl := req.build()
 	log.Println(requestUrl)
 
 	client := &http.Client{
@@ -85,40 +132,24 @@ func makeTrackerRequest(requestUrl string) (response Bencoded) {
 	return response
 }
 
+func (req DiscoverRequest) peers() (p []PeerIP) {
+	peersBytes := []byte(req.make()["peers"].(BencodedString))
+	p = make([]PeerIP, 0, len(peersBytes)/defaultIpAddressSize)
+
+	for c := range slices.Chunk(peersBytes, defaultIpAddressSize) {
+		p = append(p, NewPeerIP(c))
+	}
+
+	return
+}
+
 func DetectPeers(path string) (s string) {
-	info := NewTorrentInfo(decodeTorrentFile(path).(BencodedMap))
-
-	trackerReq := TrackerRequest{
-		AnnounceURL: info.tracker,
-		InfoHash:    info.hash[:],
-		PeerID:      defaultClientId,    // 20-character client identifier
-		Port:        defaultTrackerPort, // Standard BitTorrent port
-		Uploaded:    0,                  // No data uploaded yet
-		Downloaded:  0,                  // No data downloaded yet
-		Left:        info.length,        // 1 MB remaining (example)
-	}.build()
-
-	response := makeTrackerRequest(trackerReq).(BencodedMap)
+	torrent := ParseTorrentFile(path)
 
 	peers := make([]string, 0)
 
-	chunks := slices.Chunk(
-		[]byte(response["peers"].(BencodedString)),
-		defaultIpAddressSize,
-	)
-
-	for slice := range chunks {
-		peers = append(
-			peers,
-			fmt.Sprintf(
-				"%d.%d.%d.%d:%d",
-				slice[0],
-				slice[1],
-				slice[2],
-				slice[3],
-				binary.BigEndian.Uint16(slice[4:]),
-			),
-		)
+	for _, p := range NewDiscoverRequest(torrent).peers() {
+		peers = append(peers, p.String())
 	}
 
 	return strings.Join(peers, "\n")
