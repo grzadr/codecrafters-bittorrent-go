@@ -15,13 +15,13 @@ func main() {
 
 	switch command {
 	case "decode":
-		fmt.Println(internal.DecodeBencode(os.Args[2]))
+		fmt.Println(internal.CmdDecode(os.Args[2]))
 	case "info":
-		fmt.Println(internal.ShowTorrentInfo(os.Args[2]))
+		fmt.Println(internal.CmdInfo(os.Args[2]))
 	case "peers":
-		fmt.Println(internal.DetectPeers(os.Args[2]))
+		fmt.Println(internal.CmdPeers(os.Args[2]))
 	case "handshake":
-		fmt.Println(internal.MakeHandshake(os.Args[2], os.Args[3]))
+		fmt.Println(internal.CmdHandshake(os.Args[2], os.Args[3]))
 	case "download_piece":
 		internal.DownloadPiece(os.Args[3], os.Args[4], os.Args[5])
 	case "download":

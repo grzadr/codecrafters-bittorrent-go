@@ -72,7 +72,7 @@ func ParseTorrentFile(path string) *TorrentInfo {
 	return NewTorrentInfo(decodeTorrentFile(path).(BencodedMap))
 }
 
-func ShowTorrentInfo(path string) string {
+func CmdInfo(path string) string {
 	parsed := NewTorrentInfo(decodeTorrentFile(path).(BencodedMap))
 
 	return fmt.Sprintf(

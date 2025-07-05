@@ -141,7 +141,7 @@ func (req DiscoverRequest) peers() (p []PeerIP) {
 	return
 }
 
-func DetectPeers(path string) (s string) {
+func CmdPeers(path string) (s string) {
 	torrent := ParseTorrentFile(path)
 
 	peers := make([]string, 0)

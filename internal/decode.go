@@ -268,7 +268,7 @@ func NewBencoded(iter *ByteIterator) Bencoded {
 	}
 }
 
-func DecodeBencode(bencodedString string) string {
+func CmdDecode(bencodedString string) string {
 	iter := NewByteIterator(bencodedString)
 
 	b := NewBencoded(iter)

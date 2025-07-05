@@ -148,7 +148,7 @@ func (req HandshakeRequest) make(
 	return response
 }
 
-func MakeHandshake(path, ip string) (id string) {
+func CmdHandshake(path, ip string) (id string) {
 	torrent := ParseTorrentFile(path)
 
 	conn, _ := net.DialTCP("tcp", nil, ParsePeerIP(ip).TcpAddr())
