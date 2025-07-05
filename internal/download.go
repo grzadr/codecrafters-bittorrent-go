@@ -31,3 +31,11 @@ func DownloadPiece(downloadPath, torrentPath, pieceIndex string) {
 	// n, _ = conn.Read(response)
 	// log.Println(hex.Dump(response[:n]))
 }
+
+// TODO Plan
+// 1. Connect to all peers and receive pieces availability
+// 2. Organize pieces availability in slice of []*conn
+// 3. Divide pieces into slices of 16k and prepare requests
+// 4. Send requests to multiple peers
+// 5. Prepare an empty file
+// 5. Collect data for each piece, calc checksum and save to file
