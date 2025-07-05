@@ -9,12 +9,13 @@ import (
 )
 
 const (
-	protocoLength         = 19
-	protocolName          = "BitTorrent protocol"
-	protocolReservedBytes = 8
-	msgTypePos            = 4
-	handshakeMsgLength    = 68
-	bufferSize            = 16 * 1024
+	protocoLength           = 19
+	protocolName            = "BitTorrent protocol"
+	protocolReservedBytes   = 8
+	msgTypePos              = 4
+	handshakeMsgLength      = 68
+	requestMsgContentLength = 12
+	bufferSize              = 16 * 1024
 )
 
 func intToBytes(n int, buf []byte) {
@@ -51,6 +52,19 @@ func NewMessage(data []byte) (msg Message, read int) {
 	log.Printf("%+v [%d] from:\n%s", msg, size, hex.Dump(data))
 
 	return
+}
+
+func NewRequestMessage(index, begin, length int) Message {
+	content := make([]byte, requestMsgContentLength)
+
+	intToBytes(index, content)
+	intToBytes(begin, content[4:])
+	intToBytes(length, content[8:])
+
+	return Message{
+		msgType: Request,
+		content: content,
+	}
 }
 
 func NewInterestedMsg() Message {
