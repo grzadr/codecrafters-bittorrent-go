@@ -4,8 +4,10 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"sync"
 )
 
 const (
@@ -36,6 +38,26 @@ const (
 	Cancel
 )
 
+var messageTypeNames = [...]string{
+	"Choke",
+	"Unchoke",
+	"Interested",
+	"NotInterested",
+	"Have",
+	"Bitfield",
+	"Request",
+	"Piece",
+	"Cancel",
+}
+
+func (m MessageType) String() string {
+	if m < 0 || int(m) >= len(messageTypeNames) {
+		panic(fmt.Sprintf("MessageType(%d)", int(m)))
+	}
+
+	return messageTypeNames[m]
+}
+
 type Message struct {
 	msgType MessageType
 	content []byte
@@ -50,6 +72,33 @@ func NewMessage(data []byte) (msg Message, read int) {
 	}, msgTypePos+size
 
 	log.Printf("%+v [%d] from:\n%s", msg, size, hex.Dump(data))
+
+	return
+}
+
+func ReadNewMessage(
+	conn *net.TCPConn,
+	msgType MessageType,
+) (msg Message, err error) {
+	resp := make([]byte, bufferSize)
+
+	n, err := conn.Read(resp)
+
+	log.Println(hex.Dump(resp[:n]))
+
+	if n == 0 || err != nil {
+		return
+	}
+
+	msg, read := NewMessage(resp[:n])
+
+	if read != n {
+		panic(fmt.Sprintf("%s: read %d from %d long message", msgType, read, n))
+	}
+
+	if msg.msgType != msgType {
+		panic(fmt.Sprintf("unexpected msg type %+v", msg))
+	}
 
 	return
 }
@@ -85,9 +134,53 @@ func (m Message) encode() (msg []byte) {
 	return
 }
 
-type HandshakeResponse struct {
+type PeerConnection struct {
+	conn  *net.TCPConn
 	id    string
 	owned []byte
+	Err   error
+}
+
+func NewPeerConnection(addr *net.TCPAddr) (peer *PeerConnection) {
+	peer = &PeerConnection{}
+	conn, err := net.DialTCP("tcp", nil, addr)
+	peer.conn = conn
+
+	if err != nil {
+		peer.Err = fmt.Errorf("error connecting to %q: %w", addr, err)
+	}
+
+	return
+}
+
+func (p *PeerConnection) write(content []byte) {
+	_, p.Err = p.conn.Write(content)
+	if p.Err != nil {
+		p.Err = fmt.Errorf(
+			"error sending request: %w\n%s",
+			p.Err,
+			hex.Dump(content),
+		)
+	}
+
+	return
+}
+
+func (p *PeerConnection) read() (resp []byte, n int) {
+	resp = make([]byte, bufferSize)
+
+	n, err := p.conn.Read(resp)
+	if err != nil {
+		p.Err = fmt.Errorf("error reading from conn: %w", err)
+	}
+
+	resp = resp[:n]
+
+	return
+}
+
+func (p *PeerConnection) close() {
+	p.close()
 }
 
 type HandshakeRequest struct {
@@ -117,60 +210,104 @@ func (r HandshakeRequest) encode() []byte {
 }
 
 func (req HandshakeRequest) make(
-	conn *net.TCPConn,
-) (response HandshakeResponse) {
-	conn.Write(req.encode())
+	addr *net.TCPAddr,
+) (peer *PeerConnection) {
+	peer = NewPeerConnection(addr)
 
-	response = HandshakeResponse{}
-	resp := make([]byte, bufferSize)
-	n := 0
+	if peer.Err != nil {
+		return peer
+	}
 
-	n, _ = conn.Read(resp)
+	peer.write(req.encode())
+
+	if peer.Err != nil {
+		return peer
+	}
+
+	resp, n := peer.read()
+
+	if peer.Err != nil {
+		return peer
+	}
 
 	log.Println(hex.Dump(resp[:n]))
 
-	response.id = hex.EncodeToString(resp[n-shaHashLength : n])
+	peer.id = hex.EncodeToString(resp[n-shaHashLength : n])
 
-	n, _ = conn.Read(resp)
+	bitfield, err := ReadNewMessage(peer.conn, Bitfield)
+	if err == io.EOF {
+		return peer
+	} else if err != nil {
+		peer.Err = fmt.Errorf("error read bitfield: %w", err)
 
-	if n == 0 {
-		return response
+		return peer
 	}
 
-	bitfield, read := NewMessage(resp[:n])
+	peer.owned = bitfield.content
 
-	if read != n {
-		panic(fmt.Sprintf("bitfield: read %d from %d long message", read, n))
+	peer.write(NewInterestedMsg().encode())
+
+	if peer.Err != nil {
+		return peer
 	}
 
-	response.owned = bitfield.content
-
-	conn.Write(NewInterestedMsg().encode())
-
-	n, _ = conn.Read(resp)
-
-	unchoke, read := NewMessage(resp[:n])
-
-	if read != n {
-		panic(fmt.Sprintf("unchoke: read %d from %d long message", read, n))
+	_, err = ReadNewMessage(peer.conn, Unchoke)
+	if err != nil {
+		peer.Err = fmt.Errorf("error read unchoke: %w", err)
 	}
 
-	if unchoke.msgType != Unchoke {
-		panic(fmt.Sprintf("unchoke: unexpected msg type %+v", unchoke))
+	return peer
+}
+
+type TorrentPeers []*PeerConnection
+
+func NewTorrentPeers(
+	hash Hash,
+	addr []*net.TCPAddr,
+) (peers TorrentPeers) {
+	peers = make(TorrentPeers, len(addr))
+
+	var wg sync.WaitGroup
+
+	wg.Add(len(addr))
+
+	for i, a := range addr {
+		go func(i int, a *net.TCPAddr) {
+			defer wg.Done()
+
+			peers[i] = NewHandshakeRequest(hash).make(a)
+		}(i, a)
 	}
 
-	return response
+	wg.Wait()
+
+	for _, p := range peers {
+		if p.Err != nil {
+			panic(p.Err)
+		}
+	}
+
+	return peers
+}
+
+func (t *TorrentPeers) close() {
+	for _, peer := range *t {
+		peer.close()
+	}
 }
 
 func CmdHandshake(path, ip string) (id string) {
 	torrent := ParseTorrentFile(path)
 
-	conn, _ := net.DialTCP("tcp", nil, ParsePeerIP(ip).TcpAddr())
+	peer := NewHandshakeRequest(torrent.hash).make(ParsePeerIP(ip))
+	if peer.Err != nil {
+		panic(peer.Err)
+	}
 
-	response := NewHandshakeRequest(torrent.hash).make(conn)
+	defer peer.close()
 
 	return fmt.Sprintf(
 		"Peer ID: %s",
-		response.id,
+		peer.id,
 	)
 }

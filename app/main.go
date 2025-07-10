@@ -23,9 +23,9 @@ func main() {
 	case "handshake":
 		fmt.Println(internal.CmdHandshake(os.Args[2], os.Args[3]))
 	case "download_piece":
-		internal.DownloadPiece(os.Args[3], os.Args[4], os.Args[5])
+		internal.CmdDownloadPiece(os.Args[3], os.Args[4], os.Args[5])
 	case "download":
-		internal.Download(os.Args[3], os.Args[4])
+		internal.CmdDownload(os.Args[3], os.Args[4])
 	default:
 		log.Fatalf("Unknown command: %q", command)
 	}

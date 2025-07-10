@@ -1,25 +1,41 @@
 package internal
 
-import (
-	"encoding/binary"
-	"net"
-)
+import "iter"
 
-func intToBytesOptimized(n int32, buf []byte) {
-	binary.BigEndian.PutUint32(buf, uint32(n))
+type PieceSpec struct {
+	index int
+	begin int
+	block int
 }
 
-func Download(downloadPath, torrentPath string) {
+func IterPieceSpecs(index, size, chunk int) iter.Seq[PieceSpec] {
+	return func(yield func(PieceSpec) bool) {
+		begin := 0
+
+		for block := range size / chunk {
+			if !yield(PieceSpec{index: index, begin: begin, block: block}) {
+				return
+			}
+
+			begin += block
+		}
+
+		if left := size % chunk; left > 0 {
+			if !yield(PieceSpec{index: index, begin: begin, block: left}) {
+				return
+			}
+		}
+	}
 }
 
-func DownloadPiece(downloadPath, torrentPath, pieceIndex string) {
+func CmdDownloadPiece(downloadPath, torrentPath, pieceIndex string) {
 	torrent := ParseTorrentFile(torrentPath)
 
-	ip := NewDiscoverRequest(torrent).peers()[0]
+	addr := NewDiscoverRequest(torrent).peers()
 
-	conn, _ := net.DialTCP("tcp", nil, ip.TcpAddr())
+	// NewHandshakeRequest(torrent.hash).make(addr)
 
-	NewHandshakeRequest(torrent.hash).make(conn)
+	peers := NewTorrentPeers(torrent.hash, addr)
 	// response := make([]byte, bufferSize)
 	// message := make([]byte, bufferSize)
 	// n := 0
@@ -30,6 +46,9 @@ func DownloadPiece(downloadPath, torrentPath, pieceIndex string) {
 	// conn.Write(message)
 	// n, _ = conn.Read(response)
 	// log.Println(hex.Dump(response[:n]))
+}
+
+func CmdDownload(downloadPath, torrentPath string) {
 }
 
 // TODO Plan

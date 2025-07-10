@@ -20,38 +20,44 @@ const (
 	defaultIpAddressSize  = 6
 )
 
-type PeerIP struct {
-	ip   net.IP
-	port int
-}
+// type PeerIP net.TCPAddr
 
-func NewPeerIP(data []byte) PeerIP {
-	return PeerIP{
-		ip:   net.IPv4(data[0], data[1], data[2], data[3]),
-		port: int(binary.BigEndian.Uint16(data[4:])),
+// type PeerIP struct {
+// 	ip   net.IP
+// 	port int
+// }
+
+func NewPeerIP(data []byte) (addr *net.TCPAddr) {
+	addr = &net.TCPAddr{
+		IP:   net.IPv4(data[0], data[1], data[2], data[3]),
+		Port: int(binary.BigEndian.Uint16(data[4:])),
 	}
+
+	return
 }
 
-func ParsePeerIP(ip string) PeerIP {
-	addr, port, _ := strings.Cut(ip, ":")
-	portNum, _ := strconv.Atoi(port)
+func ParsePeerIP(ip string) (addr *net.TCPAddr) {
+	addrStr, portStr, _ := strings.Cut(ip, ":")
+	port, _ := strconv.Atoi(portStr)
 
-	return PeerIP{
-		ip:   net.ParseIP(addr),
-		port: portNum,
+	addr = &net.TCPAddr{
+		IP:   net.ParseIP(addrStr),
+		Port: port,
 	}
+
+	return
 }
 
-func (p PeerIP) String() string {
-	return fmt.Sprintf("%s:%d", p.ip, p.port)
-}
+// func (p PeerIP) String() string {
+// 	return fmt.Sprintf("%s:%d", p.ip, p.port)
+// }
 
-func (p PeerIP) TcpAddr() *net.TCPAddr {
-	return &net.TCPAddr{
-		IP:   p.ip,
-		Port: p.port,
-	}
-}
+// func (p PeerIP) TcpAddr() *net.TCPAddr {
+// 	return &net.TCPAddr{
+// 		IP:   p.ip,
+// 		Port: p.port,
+// 	}
+// }
 
 type DiscoverRequest struct {
 	AnnounceURL string
@@ -130,9 +136,9 @@ func (req DiscoverRequest) make() (response BencodedMap) {
 	return response
 }
 
-func (req DiscoverRequest) peers() (p []PeerIP) {
+func (req DiscoverRequest) peers() (p []*net.TCPAddr) {
 	peersBytes := []byte(req.make()["peers"].(BencodedString))
-	p = make([]PeerIP, 0, len(peersBytes)/defaultIpAddressSize)
+	p = make([]*net.TCPAddr, 0, len(peersBytes)/defaultIpAddressSize)
 
 	for c := range slices.Chunk(peersBytes, defaultIpAddressSize) {
 		p = append(p, NewPeerIP(c))
