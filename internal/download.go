@@ -104,6 +104,8 @@ func CmdDownloadPiece(downloadPath, torrentPath, pieceIndex string) {
 	}
 
 	wg.Wait()
+
+	handler.close()
 	// response := make([]byte, bufferSize)
 	// message := make([]byte, bufferSize)
 	// n := 0

@@ -58,8 +58,6 @@ func (h *TorrentRequestHandler) exec() {
 				resp.Resp = buf[:n]
 
 				h.recv <- resp
-
-				return
 			}()
 		case <-h.done:
 			return

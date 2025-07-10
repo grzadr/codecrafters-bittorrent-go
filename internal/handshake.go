@@ -300,8 +300,13 @@ func (t *TorrentPeers) withPiece(index int) (conns []*net.TCPConn) {
 	pos := index / byteSize
 	shift := byteSize - (index % byteSize) - 1
 
+	log.Println(index, pos, shift)
+
 	for _, peer := range *t {
-		if peer.owned[pos]&(1<<shift) == 1 {
+		log.Println(hex.Dump(peer.owned))
+		log.Printf("%08b %08b", peer.owned[pos], peer.owned[pos]>>shift)
+
+		if 1&(peer.owned[pos]<<shift) == 1 {
 			conns = append(conns, peer.conn)
 		}
 	}
