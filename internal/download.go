@@ -1,8 +1,10 @@
 package internal
 
 import (
+	"fmt"
 	"iter"
 	"strconv"
+	"sync"
 )
 
 type PieceSpec struct {
@@ -46,6 +48,26 @@ func IterRequestMsg(index, size, chunk int) iter.Seq[[]byte] {
 	}
 }
 
+type PiecePayload struct {
+	index int
+	begin int
+	block []byte
+}
+
+func NewResponseMessage(data []byte) (piece PiecePayload) {
+	msg, _ := NewMessage(data)
+
+	if msg.msgType != Piece {
+		panic(fmt.Sprintf("expected %q, got %q", Piece, msg.msgType))
+	}
+
+	piece.index = bytesToInt(data[:int32Size])
+	piece.begin = bytesToInt(data[int32Size : int32Size*2])
+	piece.block = data[int32Size*2:]
+
+	return
+}
+
 func CmdDownloadPiece(downloadPath, torrentPath, pieceIndex string) {
 	torrent := ParseTorrentFile(torrentPath)
 
@@ -58,6 +80,30 @@ func CmdDownloadPiece(downloadPath, torrentPath, pieceIndex string) {
 	peers := NewTorrentPeers(torrent.hash, addr)
 
 	conns := peers.withPiece(index)
+
+	handler := GetTorrentRequestHandler()
+
+	responses := make([]PiecePayload, 0, torrent.numPieces())
+
+	var wg sync.WaitGroup
+
+	wg.Add(torrent.numPieces())
+
+	go func() {
+		for resp := range handler.receiver() {
+			responses = append(responses, NewResponseMessage(resp.Resp))
+
+			wg.Done()
+		}
+	}()
+
+	iter := IterRequestMsg(index, torrent.pieceLength, defaultBufferSize)
+
+	for spec := range iter {
+		handler.sendPayload(conns[0], spec)
+	}
+
+	wg.Wait()
 	// response := make([]byte, bufferSize)
 	// message := make([]byte, bufferSize)
 	// n := 0

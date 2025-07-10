@@ -17,12 +17,17 @@ const (
 	msgTypePos              = 4
 	handshakeMsgLength      = 68
 	requestMsgContentLength = 12
-	bufferSize              = 16 * 1024
+	defaultBufferSize       = 16 * 1024
 	byteSize                = 8
+	int32Size               = 4
 )
 
 func intToBytes(n int, buf []byte) {
 	binary.BigEndian.PutUint32(buf, uint32(n))
+}
+
+func bytesToInt(data []byte) int {
+	return int(binary.BigEndian.Uint32(data))
 }
 
 type MessageType int
@@ -81,7 +86,7 @@ func ReadNewMessage(
 	conn *net.TCPConn,
 	msgType MessageType,
 ) (msg Message, err error) {
-	resp := make([]byte, bufferSize)
+	resp := make([]byte, defaultBufferSize)
 
 	n, err := conn.Read(resp)
 
@@ -166,7 +171,7 @@ func (p *PeerConnection) write(content []byte) {
 }
 
 func (p *PeerConnection) read() (resp []byte, n int) {
-	resp = make([]byte, bufferSize)
+	resp = make([]byte, defaultBufferSize)
 
 	n, err := p.conn.Read(resp)
 	if err != nil {
