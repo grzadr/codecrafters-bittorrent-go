@@ -18,6 +18,7 @@ const (
 	handshakeMsgLength      = 68
 	requestMsgContentLength = 12
 	bufferSize              = 16 * 1024
+	byteSize                = 8
 )
 
 func intToBytes(n int, buf []byte) {
@@ -128,8 +129,6 @@ func (m Message) encode() (msg []byte) {
 	intToBytes(len(m.content)+1, msg)
 	msg[msgTypePos] = byte(m.msgType)
 	copy(msg[msgTypePos+1:], m.content[:])
-
-	log.Printf("%+v:\n%s", m, hex.Dump(msg))
 
 	return
 }
@@ -288,6 +287,21 @@ func NewTorrentPeers(
 	}
 
 	return peers
+}
+
+func (t *TorrentPeers) withPiece(index int) (conns []*net.TCPConn) {
+	conns = make([]*net.TCPConn, 0, len(*t))
+
+	pos := index / byteSize
+	shift := byteSize - (index % byteSize) - 1
+
+	for _, peer := range *t {
+		if peer.owned[pos]&(1<<shift) == 1 {
+			conns = append(conns, peer.conn)
+		}
+	}
+
+	return
 }
 
 func (t *TorrentPeers) close() {

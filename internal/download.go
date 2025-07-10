@@ -1,6 +1,9 @@
 package internal
 
-import "iter"
+import (
+	"iter"
+	"strconv"
+)
 
 type PieceSpec struct {
 	index int
@@ -28,14 +31,33 @@ func IterPieceSpecs(index, size, chunk int) iter.Seq[PieceSpec] {
 	}
 }
 
+func IterRequestMsg(index, size, chunk int) iter.Seq[[]byte] {
+	return func(yield func([]byte) bool) {
+		for spec := range IterPieceSpecs(index, size, chunk) {
+			encoded := NewRequestMessage(
+				spec.index,
+				spec.begin,
+				spec.block,
+			).encode()
+			if !yield(encoded) {
+				return
+			}
+		}
+	}
+}
+
 func CmdDownloadPiece(downloadPath, torrentPath, pieceIndex string) {
 	torrent := ParseTorrentFile(torrentPath)
 
 	addr := NewDiscoverRequest(torrent).peers()
 
+	index, _ := strconv.Atoi(pieceIndex)
+
 	// NewHandshakeRequest(torrent.hash).make(addr)
 
 	peers := NewTorrentPeers(torrent.hash, addr)
+
+	conns := peers.withPiece(index)
 	// response := make([]byte, bufferSize)
 	// message := make([]byte, bufferSize)
 	// n := 0
