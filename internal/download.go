@@ -1,11 +1,18 @@
 package internal
 
 import (
+	"bytes"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"iter"
+	"log"
+	"os"
 	"strconv"
 	"sync"
 )
+
+const defaultFileMode = 0o644
 
 type PieceSpec struct {
 	index int
@@ -13,35 +20,72 @@ type PieceSpec struct {
 	block int
 }
 
-func IterPieceSpecs(index, size, chunk int) iter.Seq[PieceSpec] {
+func IterPieceSpecs(index, size, block int) iter.Seq[PieceSpec] {
 	return func(yield func(PieceSpec) bool) {
-		begin := 0
-
-		for block := range size / chunk {
-			if !yield(PieceSpec{index: index, begin: begin, block: block}) {
+		for num := range size / block {
+			if !yield(
+				PieceSpec{index: index, begin: num * block, block: block},
+			) {
 				return
 			}
-
-			begin += block
 		}
 
-		if left := size % chunk; left > 0 {
-			if !yield(PieceSpec{index: index, begin: begin, block: left}) {
+		if left := size % block; left > 0 {
+			if !yield(
+				PieceSpec{index: index, begin: size - left, block: left},
+			) {
 				return
 			}
 		}
 	}
 }
 
-func IterRequestMsg(index, size, chunk int) iter.Seq[[]byte] {
-	return func(yield func([]byte) bool) {
+func Cycle[S ~[]E, E any](items S) iter.Seq[E] {
+	return func(yield func(E) bool) {
+		for {
+			for _, i := range items {
+				if !yield(i) {
+					return
+				}
+			}
+		}
+	}
+}
+
+func Zip[A, B any](a iter.Seq[A], b iter.Seq[B]) iter.Seq2[A, B] {
+	return func(yield func(A, B) bool) {
+		nextA, stopA := iter.Pull(a)
+		defer stopA()
+
+		nextB, stopB := iter.Pull(b)
+		defer stopB()
+
+		for {
+			valueA, okA := nextA()
+			if !okA {
+				return
+			}
+
+			valueB, okB := nextB()
+			if !okB {
+				return
+			}
+
+			if !yield(valueA, valueB) {
+				return
+			}
+		}
+	}
+}
+
+func IterRequestMsg(index, size, chunk int) iter.Seq[PieceSpec] {
+	return func(yield func(PieceSpec) bool) {
+		log.Printf("piece: %d %d %d", index, size, chunk)
+
 		for spec := range IterPieceSpecs(index, size, chunk) {
-			encoded := NewRequestMessage(
-				spec.index,
-				spec.begin,
-				spec.block,
-			).encode()
-			if !yield(encoded) {
+			log.Printf("spec: %+v\n", spec)
+
+			if !yield(spec) {
 				return
 			}
 		}
@@ -54,77 +98,115 @@ type PiecePayload struct {
 	block []byte
 }
 
-func NewResponseMessage(data []byte) (piece PiecePayload) {
+func NewPiecePayload(data []byte) (piece PiecePayload) {
+	log.Println("NewPiecePayload\n", hex.Dump(data[:16]))
 	msg, _ := NewMessage(data)
 
 	if msg.msgType != Piece {
 		panic(fmt.Sprintf("expected %q, got %q", Piece, msg.msgType))
 	}
 
-	piece.index = bytesToInt(data[:int32Size])
-	piece.begin = bytesToInt(data[int32Size : int32Size*2])
-	piece.block = data[int32Size*2:]
+	log.Println("new message")
+
+	piece.index = bytesToInt(msg.content[:int32Size])
+	piece.begin = bytesToInt(msg.content[int32Size : int32Size*2])
+	piece.block = msg.content[int32Size*2:]
 
 	return
 }
 
-func CmdDownloadPiece(downloadPath, torrentPath, pieceIndex string) {
-	torrent := ParseTorrentFile(torrentPath)
+func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {
+	peerPools := peers.withPiece(index)
 
-	addr := NewDiscoverRequest(torrent).peers()
+	log.Printf("number of peer pools: %d", len(peerPools))
 
-	index, _ := strconv.Atoi(pieceIndex)
+	handler := NewTorrentRequestHandler(defaultQueueSize)
+	defer handler.Close()
 
-	// NewHandshakeRequest(torrent.hash).make(addr)
-
-	peers := NewTorrentPeers(torrent.hash, addr)
-
-	conns := peers.withPiece(index)
-
-	handler := GetTorrentRequestHandler()
-
-	responses := make([]PiecePayload, 0, torrent.numPieces())
+	// responses := make([]PiecePayload, 0, chunks)
 
 	var wg sync.WaitGroup
 
-	wg.Add(torrent.numPieces())
+	piece = make([]byte, length)
 
 	go func() {
-		for resp := range handler.receiver() {
-			responses = append(responses, NewResponseMessage(resp.Resp))
+		for resp := range handler.recv {
+			if resp.done {
+				log.Println("receiver is done")
+
+				return
+			}
+
+			if resp.Err != nil {
+				panic(resp.Err)
+			}
+
+			if len(resp.Resp) != 0 {
+				msg := NewPiecePayload(resp.Resp)
+
+				log.Printf("copy %d %d\n", msg.index, msg.begin)
+
+				copy(piece[msg.begin:], msg.block)
+			}
 
 			wg.Done()
 		}
 	}()
 
-	iter := IterRequestMsg(index, torrent.pieceLength, defaultBufferSize)
+	iter := IterRequestMsg(index, length, defaultBufferSize)
 
-	for spec := range iter {
-		handler.sendPayload(conns[0], spec)
+	i := 0
+
+	for spec, pool := range Zip(iter, Cycle(peerPools)) {
+		wg.Add(1)
+
+		i++
+
+		msg := NewRequestMessage(
+			spec.index,
+			spec.begin,
+			spec.block,
+		).encode()
+
+		handler.send <- TorrentRequest{
+			Pool:   pool,
+			Msg:    msg,
+			Length: spec.block,
+		}
 	}
+
+	log.Printf("waiting for %d\n", i)
 
 	wg.Wait()
 
-	handler.close()
-	// response := make([]byte, bufferSize)
-	// message := make([]byte, bufferSize)
-	// n := 0
-	// n, _ = conn.Read(response)
-	// log.Println(hex.Dump(response[:n]))
-	// intToBytesOptimized(1, message)
-	// message[4] = 2
-	// conn.Write(message)
-	// n, _ = conn.Read(response)
-	// log.Println(hex.Dump(response[:n]))
+	log.Println("wait complete")
+
+	// handler.sendPayload(nil, nil)
+
+	log.Println("returning piece")
+
+	return piece
+}
+
+func CmdDownloadPiece(downloadPath, torrentPath, pieceIndex string) {
+	torrent := ParseTorrentFile(torrentPath)
+
+	index, _ := strconv.Atoi(pieceIndex)
+
+	// NewHandshakeRequest(torrent.hash).make(addr)
+
+	peers := NewTorrentPeersFromInfo(torrent)
+	defer peers.close()
+
+	piece := downloadPiece(index, torrent.pieceLength, peers)
+
+	hash := sha1.Sum(piece)
+	if !bytes.Equal(hash[:], torrent.pieces[index][:]) {
+		panic("piece hash differ")
+	}
+
+	os.WriteFile(downloadPath, piece, defaultFileMode)
 }
 
 func CmdDownload(downloadPath, torrentPath string) {
 }
-
-// TODO Plan
-// 1. Connect to all peers and receive pieces availability
-// 2. Organize pieces availability in slice of []*conn
-// 3. Divide pieces into slices of 16k and prepare requests
-// 4. Send requests to multiple peers
-// 5. Prepare an empty file
-// 5. Collect data for each piece, calc checksum and save to file

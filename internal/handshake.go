@@ -11,15 +11,16 @@ import (
 )
 
 const (
-	protocoLength           = 19
-	protocolName            = "BitTorrent protocol"
-	protocolReservedBytes   = 8
-	msgTypePos              = 4
-	handshakeMsgLength      = 68
-	requestMsgContentLength = 12
-	defaultBufferSize       = 16 * 1024
-	byteSize                = 8
-	int32Size               = 4
+	protocoLength         = 19
+	protocolName          = "BitTorrent protocol"
+	protocolReservedBytes = 8
+	msgTypePos            = 4
+	handshakeMsgLength    = 68
+	requestFieldsNum      = 3
+	defaultBufferSize     = 16 * 1024
+	byteSize              = 8
+	int32Size             = 4
+	defaultNumConnections = 1
 )
 
 func intToBytes(n int, buf []byte) {
@@ -71,13 +72,19 @@ type Message struct {
 
 func NewMessage(data []byte) (msg Message, read int) {
 	size := int(binary.BigEndian.Uint32(data[:msgTypePos]))
+	msgType := MessageType(data[msgTypePos])
+
+	log.Println("msgType", msgType.String())
+
+	if msgType == Piece {
+		log.Println(size)
+		log.Println(hex.Dump(data[:20]))
+	}
 
 	msg, read = Message{
-		msgType: MessageType(data[msgTypePos]),
-		content: data[msgTypePos:][:size-1],
+		msgType: msgType,
+		content: data[msgTypePos+1:][:size-1],
 	}, msgTypePos+size
-
-	log.Printf("%+v [%d] from:\n%s", msg, size, hex.Dump(data))
 
 	return
 }
@@ -89,8 +96,6 @@ func ReadNewMessage(
 	resp := make([]byte, defaultBufferSize)
 
 	n, err := conn.Read(resp)
-
-	log.Println(hex.Dump(resp[:n]))
 
 	if n == 0 || err != nil {
 		return
@@ -110,11 +115,11 @@ func ReadNewMessage(
 }
 
 func NewRequestMessage(index, begin, length int) Message {
-	content := make([]byte, requestMsgContentLength)
+	content := make([]byte, int32Size*requestFieldsNum)
 
-	intToBytes(index, content)
-	intToBytes(begin, content[4:])
-	intToBytes(length, content[8:])
+	intToBytes(index, content[0:])
+	intToBytes(begin, content[int32Size:])
+	intToBytes(length, content[int32Size*2:])
 
 	return Message{
 		msgType: Request,
@@ -130,61 +135,170 @@ func NewInterestedMsg() Message {
 }
 
 func (m Message) encode() (msg []byte) {
-	msg = make([]byte, msgTypePos+1+len(m.content))
-	intToBytes(len(m.content)+1, msg)
+	contentLength := len(m.content) + 1
+	msg = make([]byte, msgTypePos+contentLength)
+	intToBytes(contentLength, msg)
 	msg[msgTypePos] = byte(m.msgType)
 	copy(msg[msgTypePos+1:], m.content[:])
 
 	return
 }
 
+type PeerConnectionPool struct {
+	pool chan *net.TCPConn
+	addr *net.TCPAddr
+}
+
+func NewPeerConnectionPool(
+	addr *net.TCPAddr,
+	num int,
+	handshake []byte,
+) (id string, owned []byte, pool *PeerConnectionPool) {
+	pool = &PeerConnectionPool{pool: make(chan *net.TCPConn, num), addr: addr}
+
+	for range num {
+		conn, err := net.DialTCP("tcp", nil, pool.addr)
+		if err != nil {
+			panic(fmt.Sprintf("error making connection: %s", err))
+		}
+
+		pool.pool <- conn
+	}
+
+	id, owned, err := pool.performHandshake(handshake)
+	if err != nil {
+		panic(fmt.Sprintf("error performing handshake: %s", err))
+	}
+
+	// for range num - 1 {
+	// 	pool.performHandshake(handshake)
+	// }
+
+	return
+}
+
+func (p *PeerConnectionPool) acquire() (conn *net.TCPConn) {
+	conn = <-p.pool
+
+	return
+}
+
+func (p *PeerConnectionPool) release(conn *net.TCPConn) {
+	p.pool <- conn
+}
+
+func sendInterested(conn *net.TCPConn) (err error) {
+	if _, err = conn.Write(NewInterestedMsg().encode()); err != nil {
+		return err
+	}
+
+	if _, err = ReadNewMessage(conn, Unchoke); err != nil {
+		err = fmt.Errorf("error read unchoke: %w", err)
+	}
+
+	return
+}
+
+func (p *PeerConnectionPool) performHandshake(
+	handshake []byte,
+) (id string, owned []byte, err error) {
+	conn := p.acquire()
+	defer p.release(conn)
+
+	if _, err = conn.Write(handshake); err != nil {
+		return id, owned, err
+	}
+
+	resp := make([]byte, defaultBufferSize)
+	n := 0
+
+	if n, err = conn.Read(resp); err != nil {
+		return id, owned, err
+	}
+
+	id = hex.EncodeToString(resp[n-shaHashLength : n])
+
+	bitfield, err := ReadNewMessage(conn, Bitfield)
+	if err == io.EOF {
+		err = nil
+
+		return id, owned, err
+	} else if err != nil {
+		err = fmt.Errorf("error read bitfield: %w", err)
+
+		return id, owned, err
+	}
+
+	owned = bitfield.content
+
+	log.Println("owned: %+v", owned)
+
+	err = sendInterested(conn)
+
+	return id, owned, err
+}
+
+func (p *PeerConnectionPool) close() {
+	defer close(p.pool)
+
+	for {
+		select {
+		case conn := <-p.pool:
+			conn.Close()
+		default:
+			return
+		}
+	}
+}
+
 type PeerConnection struct {
-	conn  *net.TCPConn
+	pool  *PeerConnectionPool
 	id    string
 	owned []byte
 	Err   error
 }
 
-func NewPeerConnection(addr *net.TCPAddr) (peer *PeerConnection) {
+func NewPeerConnection(
+	addr *net.TCPAddr,
+	handshake []byte,
+	num int,
+) (peer *PeerConnection) {
 	peer = &PeerConnection{}
-	conn, err := net.DialTCP("tcp", nil, addr)
-	peer.conn = conn
-
-	if err != nil {
-		peer.Err = fmt.Errorf("error connecting to %q: %w", addr, err)
-	}
-
-	return
-}
-
-func (p *PeerConnection) write(content []byte) {
-	_, p.Err = p.conn.Write(content)
-	if p.Err != nil {
-		p.Err = fmt.Errorf(
-			"error sending request: %w\n%s",
-			p.Err,
-			hex.Dump(content),
-		)
-	}
+	peer.id, peer.owned, peer.pool = NewPeerConnectionPool(
+		addr,
+		num,
+		handshake,
+	)
 
 	return
 }
 
-func (p *PeerConnection) read() (resp []byte, n int) {
-	resp = make([]byte, defaultBufferSize)
+// func (p *PeerConnection) write(content []byte) {
+// 	_, p.Err = p.conn.Write(content)
+// 	if p.Err != nil {
+// 		p.Err = fmt.Errorf(
+// 			"error sending request: %w\n%s",
+// 			p.Err,
+// 			hex.Dump(content),
+// 		)
+// 	}
+// }
 
-	n, err := p.conn.Read(resp)
-	if err != nil {
-		p.Err = fmt.Errorf("error reading from conn: %w", err)
-	}
+// func (p *PeerConnection) read() (resp []byte, n int) {
+// 	resp = make([]byte, defaultBufferSize)
 
-	resp = resp[:n]
+// 	n, err := p.conn.Read(resp)
+// 	if err != nil {
+// 		p.Err = fmt.Errorf("error reading from conn: %w", err)
+// 	}
 
-	return
-}
+// 	resp = resp[:n]
+
+// 	return
+// }
 
 func (p *PeerConnection) close() {
-	p.close()
+	p.pool.close()
 }
 
 type HandshakeRequest struct {
@@ -213,55 +327,53 @@ func (r HandshakeRequest) encode() []byte {
 	return message
 }
 
-func (req HandshakeRequest) make(
-	addr *net.TCPAddr,
-) (peer *PeerConnection) {
-	peer = NewPeerConnection(addr)
+// func (req HandshakeRequest) make(
+// 	addr *net.TCPAddr,
+// ) (peer *PeerConnection) {
+// 	peer = NewPeerConnection(addr)
 
-	if peer.Err != nil {
-		return peer
-	}
+// 	if peer.Err != nil {
+// 		return peer
+// 	}
 
-	peer.write(req.encode())
+// 	peer.write(req.encode())
 
-	if peer.Err != nil {
-		return peer
-	}
+// 	if peer.Err != nil {
+// 		return peer
+// 	}
 
-	resp, n := peer.read()
+// 	resp, n := peer.read()
 
-	if peer.Err != nil {
-		return peer
-	}
+// 	if peer.Err != nil {
+// 		return peer
+// 	}
 
-	log.Println(hex.Dump(resp[:n]))
+// 	peer.id = hex.EncodeToString(resp[n-shaHashLength : n])
 
-	peer.id = hex.EncodeToString(resp[n-shaHashLength : n])
+// 	bitfield, err := ReadNewMessage(peer.conn, Bitfield)
+// 	if err == io.EOF {
+// 		return peer
+// 	} else if err != nil {
+// 		peer.Err = fmt.Errorf("error read bitfield: %w", err)
 
-	bitfield, err := ReadNewMessage(peer.conn, Bitfield)
-	if err == io.EOF {
-		return peer
-	} else if err != nil {
-		peer.Err = fmt.Errorf("error read bitfield: %w", err)
+// 		return peer
+// 	}
 
-		return peer
-	}
+// 	peer.owned = bitfield.content
 
-	peer.owned = bitfield.content
+// 	peer.write(NewInterestedMsg().encode())
 
-	peer.write(NewInterestedMsg().encode())
+// 	if peer.Err != nil {
+// 		return peer
+// 	}
 
-	if peer.Err != nil {
-		return peer
-	}
+// 	_, err = ReadNewMessage(peer.conn, Unchoke)
+// 	if err != nil {
+// 		peer.Err = fmt.Errorf("error read unchoke: %w", err)
+// 	}
 
-	_, err = ReadNewMessage(peer.conn, Unchoke)
-	if err != nil {
-		peer.Err = fmt.Errorf("error read unchoke: %w", err)
-	}
-
-	return peer
-}
+// 	return peer
+// }
 
 type TorrentPeers []*PeerConnection
 
@@ -275,11 +387,13 @@ func NewTorrentPeers(
 
 	wg.Add(len(addr))
 
+	handshake := NewHandshakeRequest(hash).encode()
+
 	for i, a := range addr {
 		go func(i int, a *net.TCPAddr) {
 			defer wg.Done()
 
-			peers[i] = NewHandshakeRequest(hash).make(a)
+			peers[i] = NewPeerConnection(a, handshake, defaultNumConnections)
 		}(i, a)
 	}
 
@@ -294,24 +408,25 @@ func NewTorrentPeers(
 	return peers
 }
 
-func (t *TorrentPeers) withPiece(index int) (conns []*net.TCPConn) {
-	conns = make([]*net.TCPConn, 0, len(*t))
+func NewTorrentPeersFromInfo(info *TorrentInfo) (peers TorrentPeers) {
+	addr := NewDiscoverRequest(info).peers()
+
+	return NewTorrentPeers(info.hash, addr)
+}
+
+func (t *TorrentPeers) withPiece(index int) (conns []*PeerConnectionPool) {
+	conns = make([]*PeerConnectionPool, 0, len(*t))
 
 	pos := index / byteSize
 	shift := byteSize - (index % byteSize) - 1
 
-	log.Println(index, pos, shift)
-
 	for _, peer := range *t {
-		log.Println(hex.Dump(peer.owned))
-		log.Printf("%08b %08b", peer.owned[pos], peer.owned[pos]>>shift)
-
-		if 1&(peer.owned[pos]<<shift) == 1 {
-			conns = append(conns, peer.conn)
+		if 0x01&(peer.owned[pos]>>shift) == 1 {
+			conns = append(conns, peer.pool)
 		}
 	}
 
-	return
+	return conns
 }
 
 func (t *TorrentPeers) close() {
@@ -323,7 +438,9 @@ func (t *TorrentPeers) close() {
 func CmdHandshake(path, ip string) (id string) {
 	torrent := ParseTorrentFile(path)
 
-	peer := NewHandshakeRequest(torrent.hash).make(ParsePeerIP(ip))
+	handshake := NewHandshakeRequest(torrent.hash).encode()
+
+	peer := NewPeerConnection(ParsePeerIP(ip), handshake, 1)
 	if peer.Err != nil {
 		panic(peer.Err)
 	}
