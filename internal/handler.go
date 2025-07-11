@@ -33,12 +33,6 @@ func NewTorrentResponse(
 	conn := pool.acquire()
 	defer pool.release(conn)
 
-	// if err := sendInterested(conn); err != nil {
-	// 	resp.Err = fmt.Errorf("error sending interested: %w", err)
-
-	// 	return resp
-	// }
-
 	if n, err := conn.Write(msg); err != nil {
 		resp.Err = fmt.Errorf("error writing request: %w", err)
 
@@ -56,6 +50,8 @@ func NewTorrentResponse(
 
 	total := 0
 
+	interested := false
+
 	for {
 		if total == length+13 {
 			break
@@ -65,7 +61,13 @@ func NewTorrentResponse(
 		log.Printf("read new %d, total %d bytes for %+v", n, total, msg)
 
 		if err == io.EOF {
-			break
+			if interested {
+				break
+			} else {
+				sendInterested(conn)
+
+				interested = true
+			}
 		} else if err != nil {
 			resp.Err = fmt.Errorf("error reading piece %+v: %w", msg, err)
 
