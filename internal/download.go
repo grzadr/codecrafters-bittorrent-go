@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
-	"fmt"
 	"iter"
 	"log"
 	"os"
@@ -14,17 +13,17 @@ import (
 
 const defaultFileMode = 0o644
 
-type PieceSpec struct {
-	index int
-	begin int
-	block int
-}
+// type PieceSpec struct {
+// 	index int
+// 	begin int
+// 	block int
+// }
 
-func IterPieceSpecs(index, size, block int) iter.Seq[PieceSpec] {
-	return func(yield func(PieceSpec) bool) {
+func IterRequestMessage(index, size, block int) iter.Seq[RequestMessage] {
+	return func(yield func(RequestMessage) bool) {
 		for num := range size / block {
 			if !yield(
-				PieceSpec{index: index, begin: num * block, block: block},
+				RequestMessage{index: index, begin: num * block, block: block},
 			) {
 				return
 			}
@@ -32,7 +31,7 @@ func IterPieceSpecs(index, size, block int) iter.Seq[PieceSpec] {
 
 		if left := size % block; left > 0 {
 			if !yield(
-				PieceSpec{index: index, begin: size - left, block: left},
+				RequestMessage{index: index, begin: size - left, block: left},
 			) {
 				return
 			}
@@ -78,19 +77,19 @@ func Zip[A, B any](a iter.Seq[A], b iter.Seq[B]) iter.Seq2[A, B] {
 	}
 }
 
-func IterRequestMsg(index, size, chunk int) iter.Seq[PieceSpec] {
-	return func(yield func(PieceSpec) bool) {
-		log.Printf("piece: %d %d %d", index, size, chunk)
+// func IterRequestMsg(index, size, chunk int) iter.Seq[PieceSpec] {
+// 	return func(yield func(PieceSpec) bool) {
+// 		log.Printf("piece: %d %d %d", index, size, chunk)
 
-		for spec := range IterPieceSpecs(index, size, chunk) {
-			log.Printf("spec: %+v\n", spec)
+// 		for spec := range IterRequestMessage(index, size, chunk) {
+// 			log.Printf("spec: %+v\n", spec)
 
-			if !yield(spec) {
-				return
-			}
-		}
-	}
-}
+// 			if !yield(spec) {
+// 				return
+// 			}
+// 		}
+// 	}
+// }
 
 type PiecePayload struct {
 	index int
@@ -100,19 +99,47 @@ type PiecePayload struct {
 
 func NewPiecePayload(data []byte) (piece PiecePayload) {
 	log.Println("NewPiecePayload\n", hex.Dump(data[:16]))
-	msg, _ := NewMessage(data)
+	// msg, _ := NewMessage(data)
 
-	if msg.msgType != Piece {
-		panic(fmt.Sprintf("expected %q, got %q", Piece, msg.msgType))
-	}
+	// if msg.msgType != Piece {
+	// 	panic(fmt.Sprintf("expected %q, got %q", Piece, msg.msgType))
+	// }
 
 	log.Println("new message")
 
-	piece.index = bytesToInt(msg.content[:int32Size])
-	piece.begin = bytesToInt(msg.content[int32Size : int32Size*2])
-	piece.block = msg.content[int32Size*2:]
+	piece.index = bytesToInt(data[:int32Size])
+	piece.begin = bytesToInt(data[int32Size : int32Size*2])
+	piece.block = data[int32Size*2:]
 
 	return
+}
+
+func receivePiece(
+	recv <-chan TorrentResponse,
+	wg *sync.WaitGroup,
+	piece *[]byte,
+) {
+	for resp := range recv {
+		if resp.done {
+			log.Println("receiver is done")
+
+			return
+		}
+
+		if resp.Err != nil {
+			panic(resp.Err)
+		}
+
+		if len(resp.Resp) != 0 {
+			msg := NewPiecePayload(resp.Resp)
+
+			log.Printf("copy %d %d\n", msg.index, msg.begin)
+
+			copy((*piece)[msg.begin:], msg.block)
+		}
+
+		wg.Done()
+	}
 }
 
 func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {
@@ -129,51 +156,22 @@ func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {
 
 	piece = make([]byte, length)
 
-	go func() {
-		for resp := range handler.recv {
-			if resp.done {
-				log.Println("receiver is done")
-
-				return
-			}
-
-			if resp.Err != nil {
-				panic(resp.Err)
-			}
-
-			if len(resp.Resp) != 0 {
-				msg := NewPiecePayload(resp.Resp)
-
-				log.Printf("copy %d %d\n", msg.index, msg.begin)
-
-				copy(piece[msg.begin:], msg.block)
-			}
-
-			wg.Done()
-		}
-	}()
-
-	iter := IterRequestMsg(index, length, defaultBufferSize)
+	iter := IterRequestMessage(index, length, defaultBufferSize)
 
 	i := 0
 
-	for spec, pool := range Zip(iter, Cycle(peerPools)) {
+	for msg, pool := range Zip(iter, Cycle(peerPools)) {
 		wg.Add(1)
 
 		i++
 
-		msg := NewRequestMessage(
-			spec.index,
-			spec.begin,
-			spec.block,
-		).encode()
-
 		handler.send <- TorrentRequest{
-			Pool:   pool,
-			Msg:    msg,
-			Length: spec.block,
+			Pool: pool,
+			Msg:  msg,
 		}
 	}
+
+	go receivePiece(handler.recv, &wg, &piece)
 
 	log.Printf("waiting for %d\n", i)
 

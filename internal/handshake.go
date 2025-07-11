@@ -14,7 +14,7 @@ const (
 	protocoLength         = 19
 	protocolName          = "BitTorrent protocol"
 	protocolReservedBytes = 8
-	msgTypePos            = 4
+	msgLengthBytes        = 4
 	handshakeMsgLength    = 68
 	requestFieldsNum      = 3
 	defaultBufferSize     = 16 * 1024
@@ -71,8 +71,8 @@ type Message struct {
 }
 
 func NewMessage(data []byte) (msg Message, read int) {
-	size := int(binary.BigEndian.Uint32(data[:msgTypePos]))
-	msgType := MessageType(data[msgTypePos])
+	size := int(binary.BigEndian.Uint32(data[:msgLengthBytes]))
+	msgType := MessageType(data[msgLengthBytes])
 
 	log.Println("msgType", msgType.String())
 
@@ -83,8 +83,8 @@ func NewMessage(data []byte) (msg Message, read int) {
 
 	msg, read = Message{
 		msgType: msgType,
-		content: data[msgTypePos+1:][:size-1],
-	}, msgTypePos+size
+		content: data[msgLengthBytes+1:][:size-1],
+	}, msgLengthBytes+size
 
 	return
 }
@@ -114,18 +114,37 @@ func ReadNewMessage(
 	return
 }
 
-func NewRequestMessage(index, begin, length int) Message {
-	content := make([]byte, int32Size*requestFieldsNum)
-
-	intToBytes(index, content[0:])
-	intToBytes(begin, content[int32Size:])
-	intToBytes(length, content[int32Size*2:])
-
-	return Message{
-		msgType: Request,
-		content: content,
-	}
+type RequestMessage struct {
+	index int
+	begin int
+	block int
 }
+
+func (m RequestMessage) encode() (msg []byte) {
+	contentLength := int32Size*requestFieldsNum + 1
+	msg = make([]byte, msgLengthBytes+contentLength)
+	intToBytes(contentLength, msg)
+	msg[msgLengthBytes] = byte(Request)
+
+	intToBytes(m.index, msg[msgLengthBytes+1:])
+	intToBytes(m.begin, msg[msgLengthBytes+int32Size+1:])
+	intToBytes(m.block, msg[msgLengthBytes+int32Size*2+1:])
+
+	return
+}
+
+// func NewRequestMessage(index, begin, length int) RequestMessage {
+// 	content := make([]byte, int32Size*requestFieldsNum)
+
+// 	intToBytes(index, content[0:])
+// 	intToBytes(begin, content[int32Size:])
+// 	intToBytes(length, content[int32Size*2:])
+
+// 	return Message{
+// 		msgType: Request,
+// 		content: content,
+// 	}
+// }
 
 func NewInterestedMsg() Message {
 	return Message{
@@ -136,10 +155,10 @@ func NewInterestedMsg() Message {
 
 func (m Message) encode() (msg []byte) {
 	contentLength := len(m.content) + 1
-	msg = make([]byte, msgTypePos+contentLength)
+	msg = make([]byte, msgLengthBytes+contentLength)
 	intToBytes(contentLength, msg)
-	msg[msgTypePos] = byte(m.msgType)
-	copy(msg[msgTypePos+1:], m.content[:])
+	msg[msgLengthBytes] = byte(m.msgType)
+	copy(msg[msgLengthBytes+1:], m.content[:])
 
 	return
 }
@@ -187,8 +206,19 @@ func (p *PeerConnectionPool) release(conn *net.TCPConn) {
 	p.pool <- conn
 }
 
+func sendEncoded(conn *net.TCPConn, msg []byte) (err error) {
+	n, err := conn.Write(msg)
+	if err != nil {
+		err = fmt.Errorf("error writing request: %w", err)
+	} else if n != len(msg) {
+		err = fmt.Errorf("error writing %d bytes: wrote %d", len(msg), n)
+	}
+
+	return err
+}
+
 func sendInterested(conn *net.TCPConn) (err error) {
-	if _, err = conn.Write(NewInterestedMsg().encode()); err != nil {
+	if err = sendEncoded(conn, NewInterestedMsg().encode()); err != nil {
 		return err
 	}
 
