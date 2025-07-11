@@ -136,6 +136,8 @@ func receivePiece(
 			log.Printf("copy %d %d\n", msg.index, msg.begin)
 
 			copy((*piece)[msg.begin:], msg.block)
+		} else {
+			log.Println("zero message")
 		}
 
 		wg.Done()

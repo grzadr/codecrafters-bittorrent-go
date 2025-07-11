@@ -21,6 +21,7 @@ type TorrentRequest struct {
 
 type TorrentResponse struct {
 	Resp []byte
+	Req  RequestMessage
 	Err  error
 	done bool
 }
