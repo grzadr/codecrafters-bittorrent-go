@@ -405,13 +405,19 @@ func (r HandshakeRequest) encode() []byte {
 // 	return peer
 // }
 
-type TorrentPeers []*PeerConnection
+type TorrentPeers struct {
+	conn    chan *PeerConnection
+	numConn int
+}
 
 func NewTorrentPeers(
 	hash Hash,
 	addr []*net.TCPAddr,
 ) (peers TorrentPeers) {
-	peers = make(TorrentPeers, len(addr))
+	peers = TorrentPeers{
+		conn:    make(chan *PeerConnection, len(addr)),
+		numConn: len(addr),
+	}
 
 	var wg sync.WaitGroup
 
@@ -423,17 +429,16 @@ func NewTorrentPeers(
 		go func(i int, a *net.TCPAddr) {
 			defer wg.Done()
 
-			peers[i] = NewPeerConnection(a, handshake, defaultNumConnections)
+			conn := NewPeerConnection(a, handshake, defaultNumConnections)
+			if conn.Err != nil {
+				panic(conn.Err)
+			}
+
+			peers.conn <- conn
 		}(i, a)
 	}
 
 	wg.Wait()
-
-	for _, p := range peers {
-		if p.Err != nil {
-			panic(p.Err)
-		}
-	}
 
 	return peers
 }
@@ -444,23 +449,50 @@ func NewTorrentPeersFromInfo(info *TorrentInfo) (peers TorrentPeers) {
 	return NewTorrentPeers(info.hash, addr)
 }
 
-func (t *TorrentPeers) withPiece(index int) (conns []*PeerConnectionPool) {
-	conns = make([]*PeerConnectionPool, 0, len(*t))
-
+func (p *TorrentPeers) acquire(index int) (conn *PeerConnection) {
 	pos := index / byteSize
 	shift := byteSize - (index % byteSize) - 1
 
-	for _, peer := range *t {
-		if 0x01&(peer.owned[pos]>>shift) == 1 {
-			conns = append(conns, peer.pool)
+	for range p.numConn {
+		conn = <-p.conn
+		if 0x01&(conn.owned[pos]>>shift) == 1 {
+			return conn
 		}
 	}
 
-	return conns
+	panic(fmt.Sprintf("no peers with requested index %d", index))
 }
 
+func (p *TorrentPeers) release(conn *PeerConnection) {
+	p.conn <- conn
+}
+
+// func (t *TorrentPeers) withPiece(index int) (conns []*PeerConnectionPool) {
+// 	conns = make([]*PeerConnectionPool, 0, len(*t))
+
+// 	pos := index / byteSize
+// 	shift := byteSize - (index % byteSize) - 1
+
+// 	for range  {
+// 		conn := peers.acquire()
+// 		if conn.Err != nil {
+// 			panic(conn.Err)
+// 		}
+
+// 		peers.release(conn)
+// 	}
+
+// 	for _, peer := range *t {
+// 		if 0x01&(peer.owned[pos]>>shift) == 1 {
+// 			conns = append(conns, peer.pool)
+// 		}
+// 	}
+
+// 	return conns
+// }
+
 func (t *TorrentPeers) close() {
-	for _, peer := range *t {
+	for peer := range t.conn {
 		peer.close()
 	}
 }

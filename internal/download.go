@@ -138,6 +138,7 @@ func receivePiece(
 			copy((*piece)[msg.begin:], msg.block)
 		} else {
 			log.Println("zero message")
+			// continue
 		}
 
 		wg.Done()
@@ -145,10 +146,8 @@ func receivePiece(
 }
 
 func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {
-	peerPools := peers.withPiece(index)
-
-	log.Printf("number of peer pools: %d", len(peerPools))
-
+	// peerPools := peers.withPiece(index)
+	// log.Printf("number of peer pools: %d", len(peerPools))
 	handler := NewTorrentRequestHandler(defaultQueueSize)
 	defer handler.Close()
 
@@ -158,17 +157,17 @@ func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {
 
 	piece = make([]byte, length)
 
-	iter := IterRequestMessage(index, length, defaultBufferSize)
+	// iter :=
 
 	i := 0
 
-	for msg, pool := range Zip(iter, Cycle(peerPools)) {
+	for msg := range IterRequestMessage(index, length, defaultBufferSize) {
 		wg.Add(1)
 
 		i++
 
 		handler.send <- TorrentRequest{
-			Pool: pool,
+			Pool: &peers,
 			Msg:  msg,
 		}
 	}
@@ -178,10 +177,6 @@ func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {
 	log.Printf("waiting for %d\n", i)
 
 	wg.Wait()
-
-	log.Println("wait complete")
-
-	// handler.sendPayload(nil, nil)
 
 	log.Println("returning piece")
 

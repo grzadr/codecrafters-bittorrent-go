@@ -15,7 +15,7 @@ const (
 )
 
 type TorrentRequest struct {
-	Pool *PeerConnectionPool
+	Pool *TorrentPeers
 	Msg  RequestMessage
 }
 
@@ -192,7 +192,26 @@ func (h *TorrentRequestHandler) exec() {
 					return
 				}
 
-				h.recv <- NewTorrentResponse(req.Pool, req.Msg)
+				for range req.Pool.numConn {
+					resp, ok := func() (TorrentResponse, bool) {
+						conn := req.Pool.acquire(req.Msg.index)
+						defer req.Pool.release(conn)
+
+						resp := NewTorrentResponse(conn.pool, req.Msg)
+
+						return resp, len(resp.Resp) != 0
+					}()
+
+					if !ok {
+						continue
+					}
+
+					h.recv <- resp
+
+					return
+				}
+
+				panic("failed to download piece")
 			}()
 		case <-h.done:
 			return
