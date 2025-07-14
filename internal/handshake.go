@@ -1,10 +1,11 @@
 package internal
 
 import (
-	"encoding/binary"
+	"bufio"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"iter"
 	"log"
 	"net"
 	"sync"
@@ -23,97 +24,10 @@ const (
 	defaultNumConnections = 1
 )
 
-func intToBytes(n int, buf []byte) {
-	binary.BigEndian.PutUint32(buf, uint32(n))
-}
+func ReadNewMessage(conn *net.TCPConn) iter.Seq[Message] {
+	reader := bufio.NewReaderSize(conn, defaultByteBuffer)
 
-func bytesToInt(data []byte) int {
-	return int(binary.BigEndian.Uint32(data))
-}
-
-type MessageType int
-
-const (
-	Choke MessageType = iota
-	Unchoke
-	Interested
-	NotInterested
-	Have
-	Bitfield
-	Request
-	Piece
-	Cancel
-)
-
-var messageTypeNames = [...]string{
-	"Choke",
-	"Unchoke",
-	"Interested",
-	"NotInterested",
-	"Have",
-	"Bitfield",
-	"Request",
-	"Piece",
-	"Cancel",
-}
-
-func (m MessageType) String() string {
-	if m < 0 || int(m) >= len(messageTypeNames) {
-		panic(fmt.Sprintf("MessageType(%d)", int(m)))
-	}
-
-	return messageTypeNames[m]
-}
-
-type Message struct {
-	msgType MessageType
-	content []byte
-}
-
-func NewMessage(data []byte) (msg Message, read int) {
-	size := int(binary.BigEndian.Uint32(data[:msgLengthBytes]))
-	msgType := MessageType(data[msgLengthBytes])
-
-	log.Println("msgType", msgType.String())
-
-	if msgType == Piece {
-		log.Println(size)
-		log.Println(hex.Dump(data[:20]))
-	}
-
-	msg, read = Message{
-		msgType: msgType,
-		content: data[msgLengthBytes+1:][:size-1],
-	}, msgLengthBytes+size
-
-	return
-}
-
-func ReadNewMessage(
-	conn *net.TCPConn,
-	msgType MessageType,
-) (msg Message, err error) {
-	resp := make([]byte, defaultBufferSize)
-
-	n, err := conn.Read(resp)
-
-	if n == 0 || err != nil {
-		return
-	}
-
-	msg, read := NewMessage(resp[:n])
-
-	log.Println(hex.Dump(resp[:n]))
-
-	if read != n {
-		panic(fmt.Sprintf("%s: read %d from %d long message", msgType, read, n))
-	}
-
-	if msg.msgType != msgType {
-		panic(fmt.Sprintf("unexpected msg type %+v", msg))
-	}
-
-	return
+	return NewMessage(reader)
 }
 
 type RequestMessage struct {
@@ -150,7 +64,7 @@ func (m RequestMessage) encode() (msg []byte) {
 
 func NewInterestedMsg() Message {
 	return Message{
-		msgType: Interested,
+		Type:    Interested,
 		content: []byte{},
 	}
 }
@@ -159,7 +73,7 @@ func (m Message) encode() (msg []byte) {
 	contentLength := len(m.content) + 1
 	msg = make([]byte, msgLengthBytes+contentLength)
 	intToBytes(contentLength, msg)
-	msg[msgLengthBytes] = byte(m.msgType)
+	msg[msgLengthBytes] = byte(m.Type)
 	copy(msg[msgLengthBytes+1:], m.content[:])
 
 	return
@@ -225,6 +139,9 @@ func sendEncoded(conn *net.TCPConn, msg []byte) (err error) {
 func sendInterested(conn *net.TCPConn) (err error) {
 	if err = sendEncoded(conn, NewInterestedMsg().encode()); err != nil {
 		return err
+	}
+
+	for msg := range ReadNewMessage(conn) {
 	}
 
 	if _, err = ReadNewMessage(conn, Unchoke); err != nil {

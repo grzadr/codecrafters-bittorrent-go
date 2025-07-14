@@ -10,7 +10,7 @@ import (
 
 const (
 	defaultQueueSize    = 64
-	defaultTcpBuffer    = 64 * 1024
+	defaultByteBuffer   = 64 * 1024
 	defaultTickInterval = 100 * time.Millisecond
 )
 
@@ -53,7 +53,7 @@ func NewTorrentResponse(
 		return resp
 	}
 
-	reader := bufio.NewReaderSize(conn, defaultTcpBuffer)
+	reader := bufio.NewReaderSize(conn, defaultByteBuffer)
 	lengthBuf := make([]byte, int32Size)
 	// resp.Resp = make([]byte, defaultTcpBuffer)
 	total := 0
