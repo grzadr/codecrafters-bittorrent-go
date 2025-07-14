@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"iter"
 	"log"
 	"os"
@@ -11,7 +12,7 @@ import (
 	"sync"
 )
 
-const defaultFileMode = 0o644
+const defaultFileMode = 0o777
 
 // type PieceSpec struct {
 // 	index int
@@ -200,7 +201,13 @@ func CmdDownloadPiece(downloadPath, torrentPath, pieceIndex string) {
 		panic("piece hash differ")
 	}
 
-	os.WriteFile(downloadPath, piece, defaultFileMode)
+	log.Printf("writing %d bytes to %q", len(piece), downloadPath)
+
+	if err := os.WriteFile(downloadPath, piece, defaultFileMode); err != nil {
+		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
+	}
+
+	log.Println("file saved")
 }
 
 func CmdDownload(downloadPath, torrentPath string) {

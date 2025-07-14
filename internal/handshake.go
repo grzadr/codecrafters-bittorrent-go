@@ -103,6 +103,8 @@ func ReadNewMessage(
 
 	msg, read := NewMessage(resp[:n])
 
+	log.Println(hex.Dump(resp[:n]))
+
 	if read != n {
 		panic(fmt.Sprintf("%s: read %d from %d long message", msgType, read, n))
 	}
@@ -185,6 +187,9 @@ func NewPeerConnectionPool(
 	}
 
 	id, owned, err = pool.performHandshake(handshake)
+
+	log.Println("handshake performed")
+
 	if err != nil {
 		panic(fmt.Sprintf("error performing handshake: %s", err))
 	}
@@ -196,10 +201,10 @@ func NewPeerConnectionPool(
 	return
 }
 
-func (p *PeerConnectionPool) acquire() (conn *net.TCPConn) {
+func (p *PeerConnectionPool) acquire() *net.TCPConn {
 	p.lock.Lock()
 
-	return conn
+	return p.conn
 }
 
 func (p *PeerConnectionPool) release() {
@@ -246,6 +251,8 @@ func (p *PeerConnectionPool) performHandshake(
 		return id, owned, err
 	}
 
+	log.Println(hex.Dump(resp[:n]))
+
 	id = hex.EncodeToString(resp[n-shaHashLength : n])
 
 	bitfield, err := ReadNewMessage(conn, Bitfield)
@@ -269,7 +276,10 @@ func (p *PeerConnectionPool) performHandshake(
 }
 
 func (p *PeerConnectionPool) close() {
+	p.lock.Lock()
+	defer p.lock.Unlock()
 	p.conn.Close()
+	p.conn = nil
 }
 
 type PeerConnection struct {
