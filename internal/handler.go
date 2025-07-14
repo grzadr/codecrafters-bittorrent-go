@@ -45,7 +45,7 @@ func NewTorrentResponse(
 	msg RequestMessage,
 ) (resp TorrentResponse) {
 	conn := pool.acquire()
-	defer pool.release(conn)
+	defer pool.release()
 
 	if err := sendEncoded(conn, msg.encode()); err != nil {
 		resp.Err = err

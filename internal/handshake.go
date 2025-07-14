@@ -164,7 +164,9 @@ func (m Message) encode() (msg []byte) {
 }
 
 type PeerConnectionPool struct {
-	pool chan *net.TCPConn
+	// pool chan *net.TCPConn
+	conn *net.TCPConn
+	lock sync.Mutex
 	addr *net.TCPAddr
 }
 
@@ -173,18 +175,16 @@ func NewPeerConnectionPool(
 	num int,
 	handshake []byte,
 ) (id string, owned []byte, pool *PeerConnectionPool) {
-	pool = &PeerConnectionPool{pool: make(chan *net.TCPConn, num), addr: addr}
+	var err error
 
-	for range num {
-		conn, err := net.DialTCP("tcp", nil, pool.addr)
-		if err != nil {
-			panic(fmt.Sprintf("error making connection: %s", err))
-		}
+	pool = &PeerConnectionPool{addr: addr}
 
-		pool.pool <- conn
+	pool.conn, err = net.DialTCP("tcp", nil, pool.addr)
+	if err != nil {
+		panic(fmt.Sprintf("error making connection: %s", err))
 	}
 
-	id, owned, err := pool.performHandshake(handshake)
+	id, owned, err = pool.performHandshake(handshake)
 	if err != nil {
 		panic(fmt.Sprintf("error performing handshake: %s", err))
 	}
@@ -197,13 +197,13 @@ func NewPeerConnectionPool(
 }
 
 func (p *PeerConnectionPool) acquire() (conn *net.TCPConn) {
-	conn = <-p.pool
+	p.lock.Lock()
 
-	return
+	return conn
 }
 
-func (p *PeerConnectionPool) release(conn *net.TCPConn) {
-	p.pool <- conn
+func (p *PeerConnectionPool) release() {
+	p.lock.Unlock()
 }
 
 func sendEncoded(conn *net.TCPConn, msg []byte) (err error) {
@@ -233,7 +233,7 @@ func (p *PeerConnectionPool) performHandshake(
 	handshake []byte,
 ) (id string, owned []byte, err error) {
 	conn := p.acquire()
-	defer p.release(conn)
+	defer p.release()
 
 	if _, err = conn.Write(handshake); err != nil {
 		return id, owned, err
@@ -269,16 +269,7 @@ func (p *PeerConnectionPool) performHandshake(
 }
 
 func (p *PeerConnectionPool) close() {
-	defer close(p.pool)
-
-	for {
-		select {
-		case conn := <-p.pool:
-			conn.Close()
-		default:
-			return
-		}
-	}
+	p.conn.Close()
 }
 
 type PeerConnection struct {
