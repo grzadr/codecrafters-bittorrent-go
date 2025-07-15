@@ -24,7 +24,7 @@ const (
 	byteSize              = 8
 	int32Size             = 4
 	defaultNumConnections = 1
-	timeout               = 100 * time.Millisecond
+	timeout               = 5 * time.Second
 )
 
 func ReadNewMessage(conn *net.TCPConn) iter.Seq[Message] {

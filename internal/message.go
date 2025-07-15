@@ -132,7 +132,7 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 
 			contentBuf := make([]byte, msg.Size)
 
-			n, err := reader.Read(contentBuf)
+			n, err := io.ReadFull(reader, sizeBuf)
 			if err != nil {
 				msg.Err = fmt.Errorf("failed to read %d bytes: %w", length, err)
 			}

@@ -70,6 +70,8 @@ func NewTorrentResponse(
 		}
 
 		if msg.Type != Piece {
+			log.Println(msg.Type)
+
 			continue
 		}
 
