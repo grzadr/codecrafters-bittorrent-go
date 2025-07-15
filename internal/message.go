@@ -89,8 +89,7 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 			msg := Message{}
 
 			if _, msg.Err = io.ReadFull(reader, sizeBuf); msg.Err == io.EOF {
-				log.Println(hex.Dump(sizeBuf))
-				log.Println("EOF")
+				log.Println("EOF:", hex.Dump(sizeBuf))
 
 				return
 			} else if msg.Err != nil {
@@ -130,14 +129,14 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 
 			msg.Type = MessageType(msgByte)
 
-			contentBuf := make([]byte, msg.Size)
+			msg.content = make([]byte, msg.Size)
 
-			n, err := io.ReadFull(reader, sizeBuf)
+			_, err = io.ReadFull(reader, msg.content)
 			if err != nil {
 				msg.Err = fmt.Errorf("failed to read %d bytes: %w", length, err)
 			}
 
-			msg.content = contentBuf[:n]
+			// msg.content = contentBuf[:n]
 
 			if !yield(msg) {
 				return

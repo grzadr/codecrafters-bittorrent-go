@@ -182,10 +182,10 @@ func (p *PeerConnectionPool) performHandshake(
 	// 	log.Println(msg)
 	// }
 
-	conn.SetReadDeadline(time.Now().Add(timeout))
-
 	next, stop := iter.Pull(ReadNewMessage(conn))
 	defer stop()
+
+	// conn.SetReadDeadline(time.Now().Add(timeout))
 
 	response, ok := next()
 
@@ -202,6 +202,8 @@ func (p *PeerConnectionPool) performHandshake(
 	// 		return id, owned, err
 	// 	}
 	// }
+
+	// conn.SetReadDeadline(time.Now().Add(timeout))
 
 	response, ok = next()
 
@@ -236,6 +238,8 @@ func (p *PeerConnectionPool) performHandshake(
 	// owned = bitfield.content
 
 	log.Println("owned: %+v", owned)
+
+	// conn.SetReadDeadline(time.Now().Add(timeout))
 
 	err = sendInterested(conn)
 

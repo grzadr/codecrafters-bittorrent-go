@@ -214,6 +214,10 @@ func (h *TorrentRequestHandler) exec() {
 					for _, peer := range req.Peers {
 						resp := NewTorrentResponse(peer.pool, req.Msg)
 
+						if resp.Err != nil {
+							panic(resp.Err)
+						}
+
 						if len(resp.Resp) == 0 {
 							continue
 						}
@@ -222,6 +226,8 @@ func (h *TorrentRequestHandler) exec() {
 
 						return
 					}
+
+					time.Sleep(100 * time.Millisecond)
 				}
 
 				panic("failed to download piece")
