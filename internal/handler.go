@@ -3,7 +3,6 @@ package internal
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"log"
 	"time"
 )
@@ -15,8 +14,9 @@ const (
 )
 
 type TorrentRequest struct {
-	Pool *TorrentPeers
-	Msg  RequestMessage
+	// Pool *TorrentPeers
+	Peers []*PeerConnection
+	Msg   RequestMessage
 }
 
 type TorrentResponse struct {
@@ -54,63 +54,81 @@ func NewTorrentResponse(
 	}
 
 	reader := bufio.NewReaderSize(conn, defaultByteBuffer)
-	lengthBuf := make([]byte, int32Size)
-	// resp.Resp = make([]byte, defaultTcpBuffer)
-	total := 0
+
+	// reader := bufio.NewReaderSize(conn, defaultByteBuffer)
+	// lengthBuf := make([]byte, int32Size)
+	// // resp.Resp = make([]byte, defaultTcpBuffer)
+	// total := 0
 
 	log.Println("reading in a loop")
 
-	for {
-		if _, err := io.ReadFull(reader, lengthBuf); err == io.EOF {
-			break
-		} else if err != nil {
-			resp.Err = fmt.Errorf("error reading length: %w", err)
+	for msg := range NewMessage(reader) {
+		if msg.Err != nil {
+			resp.Err = fmt.Errorf("error reading message: %w", msg.Err)
 
 			return resp
 		}
 
-		length := bytesToInt(lengthBuf)
-
-		log.Printf("reading message of size %d", length)
-
-		if length == 0 {
-			log.Println("skip empty")
-
+		if msg.Type != Piece {
 			continue
 		}
 
-		msgByte, err := reader.ReadByte()
-		if err != nil {
-			resp.Err = fmt.Errorf("error reading msg type: %w", err)
-
-			return resp
-		}
-
-		log.Printf("read message byte: %08b", msgByte)
-
-		if msgType := MessageType(msgByte); msgType != Piece {
-			resp.Err = fmt.Errorf("expected piece, got %s", msgType)
-
-			return resp
-		}
-
-		// if length > 1 {
-		n := 0
-
-		resp.Resp = make([]byte, length-1)
-		if n, err = io.ReadFull(reader, resp.Resp); err != nil {
-			resp.Err = fmt.Errorf("error reading payload: %w", err)
-
-			return resp
-		}
-
-		total += n
-		// }
+		resp.Resp = msg.content
 
 		break
 	}
 
-	resp.Resp = resp.Resp[:total]
+	// for {
+	// 	if _, err := io.ReadFull(reader, lengthBuf); err == io.EOF {
+	// 		break
+	// 	} else if err != nil {
+	// 		resp.Err = fmt.Errorf("error reading length: %w", err)
+
+	// 		return resp
+	// 	}
+
+	// 	length := bytesToInt(lengthBuf)
+
+	// 	log.Printf("reading message of size %d", length)
+
+	// 	if length == 0 {
+	// 		log.Println("skip empty")
+
+	// 		continue
+	// 	}
+
+	// 	msgByte, err := reader.ReadByte()
+	// 	if err != nil {
+	// 		resp.Err = fmt.Errorf("error reading msg type: %w", err)
+
+	// 		return resp
+	// 	}
+
+	// 	log.Printf("read message byte: %08b", msgByte)
+
+	// 	if msgType := MessageType(msgByte); msgType != Piece {
+	// 		resp.Err = fmt.Errorf("expected piece, got %s", msgType)
+
+	// 		return resp
+	// 	}
+
+	// 	// if length > 1 {
+	// 	n := 0
+
+	// 	resp.Resp = make([]byte, length-1)
+	// 	if n, err = io.ReadFull(reader, resp.Resp); err != nil {
+	// 		resp.Err = fmt.Errorf("error reading payload: %w", err)
+
+	// 		return resp
+	// 	}
+
+	// 	total += n
+	// 	// }
+
+	// 	break
+	// }
+
+	// resp.Resp = resp.Resp[:total]
 
 	return resp
 	// buf := make([]byte, defaultResponseBufferSize)
@@ -185,30 +203,23 @@ func (h *TorrentRequestHandler) exec() {
 			log.Printf("received request: %+v\n", req)
 
 			go func() {
-				if req.Pool == nil {
-					log.Println("done")
-					h.recv <- TorrentResponse{done: true}
+				// if req.Pool == nil {
+				// 	log.Println("done")
+				// 	h.recv <- TorrentResponse{done: true}
+				// 	return
+				// }
+				for range 3 {
+					for _, peer := range req.Peers {
+						resp := NewTorrentResponse(peer.pool, req.Msg)
 
-					return
-				}
+						if len(resp.Resp) == 0 {
+							continue
+						}
 
-				for range req.Pool.numConn {
-					resp, ok := func() (TorrentResponse, bool) {
-						conn := req.Pool.acquire(req.Msg.index)
-						defer req.Pool.release(conn)
+						h.recv <- resp
 
-						resp := NewTorrentResponse(conn.pool, req.Msg)
-
-						return resp, len(resp.Resp) != 0
-					}()
-
-					if !ok {
-						continue
+						return
 					}
-
-					h.recv <- resp
-
-					return
 				}
 
 				panic("failed to download piece")

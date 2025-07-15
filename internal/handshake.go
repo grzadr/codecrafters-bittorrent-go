@@ -4,18 +4,17 @@ import (
 	"bufio"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"iter"
 	"log"
 	"net"
-	"slices"
 	"sync"
+	"time"
 )
 
 const (
 	protocoLength         = 19
 	protocolName          = "BitTorrent protocol"
-	handshakePrefix = slices.Concat(protocoLength, "Bit")
+	handshakePrefix       = "\x13Bit"
 	handshakePrefixLength = len(handshakePrefix)
 	protocolReservedBytes = 8
 	msgLengthBytes        = 4
@@ -25,6 +24,7 @@ const (
 	byteSize              = 8
 	int32Size             = 4
 	defaultNumConnections = 1
+	timeout               = 100 * time.Millisecond
 )
 
 func ReadNewMessage(conn *net.TCPConn) iter.Seq[Message] {
@@ -151,6 +151,8 @@ func sendInterested(conn *net.TCPConn) error {
 		}
 
 		if msg.Type == Unchoke {
+			log.Println("received unchoke")
+
 			found = true
 
 			break
@@ -173,42 +175,65 @@ func (p *PeerConnectionPool) performHandshake(
 	defer p.release()
 
 	if _, err = conn.Write(handshake); err != nil {
-		return id, owned, fmt.Errorf("error sending handshake: %w")
+		return id, owned, fmt.Errorf("error sending handshake: %w", err)
 	}
 
-	for msg := range ReadNewMessage(conn) {
-		if msg.Err != nil {
-			err = fmt.Errorf("failed to read handshake response: %w", msg.Err)
+	// for msg := range ReadNewMessage(conn) {
+	// 	log.Println(msg)
+	// }
 
-			return id, owned, err
-		}
+	conn.SetReadDeadline(time.Now().Add(timeout))
 
-		if
+	next, stop := iter.Pull(ReadNewMessage(conn))
+	defer stop()
+
+	response, ok := next()
+
+	if !ok || response.Err != nil {
+		return id, owned, response.Err
 	}
 
-	resp := make([]byte, defaultBufferSize)
-	n := 0
+	id = hex.EncodeToString(response.content[response.Size-shaHashLength:])
 
-	if n, err = conn.Read(resp); err != nil {
+	// for msg := range ReadNewMessage(conn) {
+	// 	if msg.Err != nil {
+	// 		err = fmt.Errorf("failed to read handshake response: %w", msg.Err)
+
+	// 		return id, owned, err
+	// 	}
+	// }
+
+	response, ok = next()
+
+	if !ok {
 		return id, owned, err
+	} else if response.Err != nil {
+		return id, owned, fmt.Errorf("error reading bitfield: %w", response.Err)
 	}
 
-	log.Println(hex.Dump(resp[:n]))
+	owned = response.content
 
-	id = hex.EncodeToString(resp[n-shaHashLength : n])
+	// resp := make([]byte, defaultBufferSize)
+	// n := 0
 
-	bitfield, err := ReadNewMessage(conn, Bitfield)
-	if err == io.EOF {
-		err = nil
+	// if n, err = conn.Read(resp); err != nil {
+	// 	return id, owned, err
+	// }
 
-		return id, owned, err
-	} else if err != nil {
-		err = fmt.Errorf("error read bitfield: %w", err)
+	// log.Println(hex.Dump(resp[:n]))
 
-		return id, owned, err
-	}
+	// bitfield, err := ReadNewMessage(conn, Bitfield)
+	// if err == io.EOF {
+	// 	err = nil
 
-	owned = bitfield.content
+	// 	return id, owned, err
+	// } else if err != nil {
+	// 	err = fmt.Errorf("error read bitfield: %w", err)
+
+	// 	return id, owned, err
+	// }
+
+	// owned = bitfield.content
 
 	log.Println("owned: %+v", owned)
 
@@ -349,7 +374,8 @@ func (r HandshakeRequest) encode() []byte {
 // }
 
 type TorrentPeers struct {
-	conn    chan *PeerConnection
+	// conn    chan *PeerConnection
+	peers   []*PeerConnection
 	numConn int
 }
 
@@ -358,7 +384,7 @@ func NewTorrentPeers(
 	addr []*net.TCPAddr,
 ) (peers TorrentPeers) {
 	peers = TorrentPeers{
-		conn:    make(chan *PeerConnection, len(addr)),
+		peers:   make([]*PeerConnection, len(addr)),
 		numConn: len(addr),
 	}
 
@@ -374,10 +400,11 @@ func NewTorrentPeers(
 
 			conn := NewPeerConnection(a, handshake, defaultNumConnections)
 			if conn.Err != nil {
+				log.Println("conn panick", conn.Err)
 				panic(conn.Err)
 			}
 
-			peers.conn <- conn
+			peers.peers[i] = conn
 		}(i, a)
 	}
 
@@ -392,23 +419,37 @@ func NewTorrentPeersFromInfo(info *TorrentInfo) (peers TorrentPeers) {
 	return NewTorrentPeers(info.hash, addr)
 }
 
-func (p *TorrentPeers) acquire(index int) (conn *PeerConnection) {
+// func (p *TorrentPeers) acquire(index int) (conn *PeerConnection) {
+// 	pos := index / byteSize
+// 	shift := byteSize - (index % byteSize) - 1
+
+// 	for range p.numConn {
+// 		conn = <-p.conn
+// 		if 0x01&(conn.owned[pos]>>shift) == 1 {
+// 			return conn
+// 		}
+// 	}
+
+// 	panic(fmt.Sprintf("no peers with requested index %d", index))
+// }
+
+func (p *TorrentPeers) pick(index int) (peers []*PeerConnection) {
 	pos := index / byteSize
 	shift := byteSize - (index % byteSize) - 1
+	peers = make([]*PeerConnection, len(p.peers))
 
-	for range p.numConn {
-		conn = <-p.conn
+	for i, conn := range p.peers {
 		if 0x01&(conn.owned[pos]>>shift) == 1 {
-			return conn
+			peers[i] = conn
 		}
 	}
 
-	panic(fmt.Sprintf("no peers with requested index %d", index))
+	return peers
 }
 
-func (p *TorrentPeers) release(conn *PeerConnection) {
-	p.conn <- conn
-}
+// func (p *TorrentPeers) release(conn *PeerConnection) {
+// 	p.conn <- conn
+// }
 
 // func (t *TorrentPeers) withPiece(index int) (conns []*PeerConnectionPool) {
 // 	conns = make([]*PeerConnectionPool, 0, len(*t))
@@ -435,8 +476,8 @@ func (p *TorrentPeers) release(conn *PeerConnection) {
 // }
 
 func (t *TorrentPeers) close() {
-	for peer := range t.conn {
-		peer.close()
+	for _, peer := range t.peers {
+		peer.pool.close()
 	}
 }
 

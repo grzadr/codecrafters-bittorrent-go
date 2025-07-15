@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"iter"
+	"log"
 )
 
 func intToBytes(n int, buf []byte) {
@@ -60,24 +62,36 @@ type Message struct {
 	Err     error
 }
 
-// type NextMessage struct {
-// 	Msg Message
-// 	Err error
-// }
+func NewHandshakeMessage(reader *bufio.Reader) (msg Message) {
+	msg = Message{
+		Type:    Handshake,
+		content: make([]byte, handshakeMsgLength),
+		Size:    handshakeMsgLength,
+	}
+	copy(msg.content, []byte(handshakePrefix))
 
-func NewHandshakeMessage(reader *bufio.Reader) Message {
-	buff := make([]byte, 0, handshakeMsgLength-handshakePrefixLength)
+	if _, msg.Err = io.ReadFull(reader, msg.content[len(handshakePrefix):]); msg.Err != nil {
+		msg.Err = fmt.Errorf("error reading handshake response: %w", msg.Err)
+
+		return msg
+	}
+
+	log.Println(hex.Dump(msg.content))
+
+	return
 }
 
 func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 	return func(yield func(Message) bool) {
-		sizeBuf := make([]byte, 0, int32Size)
-		contentBuf := make([]byte, 0, defaultByteBuffer)
+		sizeBuf := make([]byte, int32Size)
 
 		for {
 			msg := Message{}
 
 			if _, msg.Err = io.ReadFull(reader, sizeBuf); msg.Err == io.EOF {
+				log.Println(hex.Dump(sizeBuf))
+				log.Println("EOF")
+
 				return
 			} else if msg.Err != nil {
 				msg.Err = fmt.Errorf("error reading length: %w", msg.Err)
@@ -87,9 +101,14 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 				return
 			}
 
-			if bytes.Equal(sizeBuf, handshakePrefix) &&
-				!yield(NewHandshakeMessage(reader)) {
-				return
+			log.Println(hex.Dump(sizeBuf))
+
+			if bytes.Equal(sizeBuf, []byte(handshakePrefix)) {
+				if !yield(NewHandshakeMessage(reader)) {
+					return
+				}
+
+				continue
 			}
 
 			length := bytesToInt(sizeBuf)
@@ -97,6 +116,8 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 			if length == 0 {
 				continue
 			}
+
+			msg.Size = length - 1
 
 			msgByte, err := reader.ReadByte()
 			if err != nil {
@@ -108,6 +129,8 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 			}
 
 			msg.Type = MessageType(msgByte)
+
+			contentBuf := make([]byte, msg.Size)
 
 			n, err := reader.Read(contentBuf)
 			if err != nil {

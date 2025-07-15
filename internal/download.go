@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"iter"
 	"log"
@@ -162,15 +163,20 @@ func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {
 
 	i := 0
 
+	picked := peers.pick(index)
+	pickedLen := len(picked)
+
 	for msg := range IterRequestMessage(index, length, defaultBufferSize) {
 		wg.Add(1)
 
-		i++
+		shift := i % pickedLen
 
 		handler.send <- TorrentRequest{
-			Pool: &peers,
-			Msg:  msg,
+			Peers: append(picked[shift:], picked[:shift]...),
+			Msg:   msg,
 		}
+
+		i++
 	}
 
 	go receivePiece(handler.recv, &wg, &piece)
@@ -204,6 +210,10 @@ func CmdDownloadPiece(downloadPath, torrentPath, pieceIndex string) {
 	log.Printf("writing %d bytes to %q", len(piece), downloadPath)
 
 	if err := os.WriteFile(downloadPath, piece, defaultFileMode); err != nil {
+		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
+	}
+
+	if _, err := os.Stat(downloadPath); errors.Is(err, os.ErrNotExist) {
 		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
 	}
 
