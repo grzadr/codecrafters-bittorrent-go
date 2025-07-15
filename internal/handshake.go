@@ -8,12 +8,15 @@ import (
 	"iter"
 	"log"
 	"net"
+	"slices"
 	"sync"
 )
 
 const (
 	protocoLength         = 19
 	protocolName          = "BitTorrent protocol"
+	handshakePrefix = slices.Concat(protocoLength, "Bit")
+	handshakePrefixLength = len(handshakePrefix)
 	protocolReservedBytes = 8
 	msgLengthBytes        = 4
 	handshakeMsgLength    = 68
@@ -125,30 +128,42 @@ func (p *PeerConnectionPool) release() {
 	p.lock.Unlock()
 }
 
-func sendEncoded(conn *net.TCPConn, msg []byte) (err error) {
-	n, err := conn.Write(msg)
-	if err != nil {
-		err = fmt.Errorf("error writing request: %w", err)
+func sendEncoded(conn *net.TCPConn, msg []byte) error {
+	if n, err := conn.Write(msg); err != nil {
+		return fmt.Errorf("error writing request: %w", err)
 	} else if n != len(msg) {
-		err = fmt.Errorf("error writing %d bytes: wrote %d", len(msg), n)
+		return fmt.Errorf("error writing %d bytes: wrote %d", len(msg), n)
 	}
 
-	return err
+	return nil
 }
 
-func sendInterested(conn *net.TCPConn) (err error) {
-	if err = sendEncoded(conn, NewInterestedMsg().encode()); err != nil {
-		return err
+func sendInterested(conn *net.TCPConn) error {
+	if err := sendEncoded(conn, NewInterestedMsg().encode()); err != nil {
+		return fmt.Errorf("error sending interested: %w", err)
 	}
+
+	found := false
 
 	for msg := range ReadNewMessage(conn) {
+		if msg.Err != nil {
+			return fmt.Errorf("failed to read unchoke: %w", msg.Err)
+		}
+
+		if msg.Type == Unchoke {
+			found = true
+
+			break
+		}
 	}
 
-	if _, err = ReadNewMessage(conn, Unchoke); err != nil {
-		err = fmt.Errorf("error read unchoke: %w", err)
+	if !found {
+		return fmt.Errorf(
+			"error sending interested: no unchoke message detected",
+		)
 	}
 
-	return
+	return nil
 }
 
 func (p *PeerConnectionPool) performHandshake(
@@ -158,7 +173,17 @@ func (p *PeerConnectionPool) performHandshake(
 	defer p.release()
 
 	if _, err = conn.Write(handshake); err != nil {
-		return id, owned, err
+		return id, owned, fmt.Errorf("error sending handshake: %w")
+	}
+
+	for msg := range ReadNewMessage(conn) {
+		if msg.Err != nil {
+			err = fmt.Errorf("failed to read handshake response: %w", msg.Err)
+
+			return id, owned, err
+		}
+
+		if
 	}
 
 	resp := make([]byte, defaultBufferSize)

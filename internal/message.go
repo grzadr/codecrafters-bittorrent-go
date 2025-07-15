@@ -2,6 +2,7 @@ package internal
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -28,6 +29,7 @@ const (
 	Request
 	Piece
 	Cancel
+	Handshake
 )
 
 var messageTypeNames = [...]string{
@@ -40,6 +42,7 @@ var messageTypeNames = [...]string{
 	"Request",
 	"Piece",
 	"Cancel",
+	"Handshake",
 }
 
 func (m MessageType) String() string {
@@ -62,6 +65,10 @@ type Message struct {
 // 	Err error
 // }
 
+func NewHandshakeMessage(reader *bufio.Reader) Message {
+	buff := make([]byte, 0, handshakeMsgLength-handshakePrefixLength)
+}
+
 func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 	return func(yield func(Message) bool) {
 		sizeBuf := make([]byte, 0, int32Size)
@@ -70,13 +77,18 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 		for {
 			msg := Message{}
 
-			if _, err := io.ReadFull(reader, sizeBuf); err == io.EOF {
-				break
-			} else if err != nil {
-				msg.Err = fmt.Errorf("error reading length: %w", err)
+			if _, msg.Err = io.ReadFull(reader, sizeBuf); msg.Err == io.EOF {
+				return
+			} else if msg.Err != nil {
+				msg.Err = fmt.Errorf("error reading length: %w", msg.Err)
 
 				yield(msg)
 
+				return
+			}
+
+			if bytes.Equal(sizeBuf, handshakePrefix) &&
+				!yield(NewHandshakeMessage(reader)) {
 				return
 			}
 
