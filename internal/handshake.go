@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"bufio"
 	"encoding/hex"
 	"fmt"
 	"iter"
@@ -118,14 +119,14 @@ func sendEncoded(conn *net.TCPConn, msg []byte) error {
 	return nil
 }
 
-func sendInterested(conn *net.TCPConn) error {
+func sendInterested(reader *bufio.Reader, conn *net.TCPConn) error {
 	if err := sendEncoded(conn, NewInterestedMsg().encode()); err != nil {
 		return fmt.Errorf("error sending interested: %w", err)
 	}
 
 	found := false
 
-	for msg := range ReadNewMessage(conn) {
+	for msg := range NewMessage(reader) {
 		if msg.Err != nil {
 			return fmt.Errorf("failed to read unchoke: %w", msg.Err)
 		}
@@ -162,7 +163,9 @@ func (p *PeerConnectionPool) performHandshake(
 	// 	log.Println(msg)
 	// }
 
-	next, stop := iter.Pull(ReadNewMessage(conn))
+	reader := bufio.NewReader(conn)
+
+	next, stop := iter.Pull(NewMessage(reader))
 	defer stop()
 
 	// conn.SetReadDeadline(time.Now().Add(timeout))
@@ -221,7 +224,7 @@ func (p *PeerConnectionPool) performHandshake(
 
 	// conn.SetReadDeadline(time.Now().Add(timeout))
 
-	err = sendInterested(conn)
+	err = sendInterested(reader, conn)
 
 	return id, owned, err
 }
@@ -463,22 +466,4 @@ func (t *TorrentPeers) close() {
 	for _, peer := range t.peers {
 		peer.pool.close()
 	}
-}
-
-func CmdHandshake(path, ip string) (id string) {
-	torrent := ParseTorrentFile(path)
-
-	handshake := NewHandshakeRequest(torrent.hash).encode()
-
-	peer := NewPeerConnection(ParsePeerIP(ip), handshake, 1)
-	if peer.Err != nil {
-		panic(peer.Err)
-	}
-
-	defer peer.close()
-
-	return fmt.Sprintf(
-		"Peer ID: %s",
-		peer.id,
-	)
 }
