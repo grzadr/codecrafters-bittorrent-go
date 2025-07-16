@@ -148,9 +148,17 @@ type PieceKey struct {
 	begin int
 }
 
-type PieceRegistry struct {
+type pieceRegistry struct {
 	// requests Queue[RequestMessage]
-	pieces map[PieceKey][]byte
+	sum Hash
+	// length int
+	chunks map[int][]byte
+}
+
+func newPieceRegistry() *pieceRegistry {
+	reg := &pieceRegistry{}
+
+	return reg
 }
 
 func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {
