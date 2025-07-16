@@ -3,7 +3,6 @@ package internal
 import (
 	"bytes"
 	"crypto/sha1"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"iter"
@@ -93,29 +92,6 @@ func Zip[A, B any](a iter.Seq[A], b iter.Seq[B]) iter.Seq2[A, B] {
 // 	}
 // }
 
-type PiecePayload struct {
-	index int
-	begin int
-	block []byte
-}
-
-func NewPiecePayload(data []byte) (piece PiecePayload) {
-	log.Println("NewPiecePayload\n", hex.Dump(data[:16]))
-	// msg, _ := NewMessage(data)
-
-	// if msg.msgType != Piece {
-	// 	panic(fmt.Sprintf("expected %q, got %q", Piece, msg.msgType))
-	// }
-
-	log.Println("new message")
-
-	piece.index = bytesToInt(data[:int32Size])
-	piece.begin = bytesToInt(data[int32Size : int32Size*2])
-	piece.block = data[int32Size*2:]
-
-	return
-}
-
 func receivePiece(
 	recv <-chan TorrentResponse,
 	wg *sync.WaitGroup,
@@ -145,6 +121,36 @@ func receivePiece(
 
 		wg.Done()
 	}
+}
+
+type Queue[T any] struct {
+	items []T
+}
+
+func (q *Queue[T]) Enqueue(item T) {
+	q.items = append(q.items, item)
+}
+
+func (q *Queue[T]) Dequeue() (item T, ok bool) {
+	if len(q.items) == 0 {
+		return
+	}
+
+	item = q.items[0]
+	q.items = q.items[1:]
+	ok = true
+
+	return item, ok
+}
+
+type PieceKey struct {
+	index int
+	begin int
+}
+
+type PieceRegistry struct {
+	// requests Queue[RequestMessage]
+	pieces map[PieceKey][]byte
 }
 
 func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {

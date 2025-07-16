@@ -1,7 +1,6 @@
 package internal
 
 import (
-	"bufio"
 	"encoding/hex"
 	"fmt"
 	"iter"
@@ -27,30 +26,11 @@ const (
 	timeout               = 5 * time.Second
 )
 
-func ReadNewMessage(conn *net.TCPConn) iter.Seq[Message] {
-	reader := bufio.NewReaderSize(conn, defaultByteBuffer)
+// func ReadNewMessage(conn *net.TCPConn) iter.Seq[Message] {
+// 	reader := bufio.NewReaderSize(conn, defaultByteBuffer)
 
-	return NewMessage(reader)
-}
-
-type RequestMessage struct {
-	index int
-	begin int
-	block int
-}
-
-func (m RequestMessage) encode() (msg []byte) {
-	contentLength := int32Size*requestFieldsNum + 1
-	msg = make([]byte, msgLengthBytes+contentLength)
-	intToBytes(contentLength, msg)
-	msg[msgLengthBytes] = byte(Request)
-
-	intToBytes(m.index, msg[msgLengthBytes+1:])
-	intToBytes(m.begin, msg[msgLengthBytes+int32Size+1:])
-	intToBytes(m.block, msg[msgLengthBytes+int32Size*2+1:])
-
-	return
-}
+// 	return NewMessage(reader)
+// }
 
 // func NewRequestMessage(index, begin, length int) RequestMessage {
 // 	content := make([]byte, int32Size*requestFieldsNum)

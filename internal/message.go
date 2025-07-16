@@ -144,3 +144,43 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 		}
 	}
 }
+
+type RequestMessage struct {
+	index int
+	begin int
+	block int
+}
+
+func (m RequestMessage) encode() (msg []byte) {
+	contentLength := int32Size*requestFieldsNum + 1
+	msg = make([]byte, msgLengthBytes+contentLength)
+	intToBytes(contentLength, msg)
+	msg[msgLengthBytes] = byte(Request)
+
+	intToBytes(m.index, msg[msgLengthBytes+1:])
+	intToBytes(m.begin, msg[msgLengthBytes+int32Size+1:])
+	intToBytes(m.block, msg[msgLengthBytes+int32Size*2+1:])
+
+	return
+}
+
+type PieceMessage struct {
+	index int
+	begin int
+	block []byte
+}
+
+func NewPiecePayload(data []byte) (piece PieceMessage) {
+	log.Println("NewPiecePayload\n", hex.Dump(data[:16]))
+	// msg, _ := NewMessage(data)
+
+	// if msg.msgType != Piece {
+	// 	panic(fmt.Sprintf("expected %q, got %q", Piece, msg.msgType))
+	// }
+
+	piece.index = bytesToInt(data[:int32Size])
+	piece.begin = bytesToInt(data[int32Size : int32Size*2])
+	piece.block = data[int32Size*2:]
+
+	return
+}
