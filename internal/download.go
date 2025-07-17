@@ -143,16 +143,38 @@ func (q *Queue[T]) Dequeue() (item T, ok bool) {
 	return item, ok
 }
 
-type PieceKey struct {
-	index int
-	begin int
+type PieceBlock struct {
+	checksum Hash
+	// size      int
+	numBlocks int
+	block     []byte
 }
+
+func NewPieceBlock(checksum Hash, size, blockSize int) (block *PieceBlock) {
+	block = &PieceBlock{
+		checksum: checksum,
+		block:    make([]byte, size),
+	}
+
+	block.numBlocks = size / blockSize
+
+	if size%blockSize != 0 {
+		block.numBlocks++
+	}
+
+	return
+}
+
+// type PieceKey struct {
+// 	index int
+// 	begin int
+// }
 
 type pieceRegistry struct {
 	// requests Queue[RequestMessage]
-	sum Hash
+	checksum Hash
 	// length int
-	chunks map[int][]byte
+	pieces map[int]*PieceBlock
 }
 
 func newPieceRegistry() *pieceRegistry {
