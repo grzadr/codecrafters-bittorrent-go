@@ -12,7 +12,7 @@ import (
 	"sync"
 )
 
-const defaultFileMode = 0o777
+const defaultFileMode = 0o644
 
 // type PieceSpec struct {
 // 	index int
@@ -165,19 +165,65 @@ func NewPieceBlock(checksum Hash, size, blockSize int) (block *PieceBlock) {
 	return
 }
 
-// type PieceKey struct {
-// 	index int
-// 	begin int
-// }
+type PieceKey struct {
+	index int
+	begin int
+}
+
+func IterPieceKeys(index, size, blockSize int) iter.Seq[PieceKey] {
+	return func(yield func(PieceKey) bool) {
+		for num := range size / blockSize {
+			if !yield(
+				RequestMessage{
+					index: index,
+					begin: num * blockSize,
+					block: blockSize,
+				},
+			) {
+				return
+			}
+		}
+
+		if left := size % blockSize; left > 0 {
+			if !yield(
+				RequestMessage{index: index, begin: size - left, block: left},
+			) {
+				return
+			}
+		}
+	}
+}
+
+type TorrentPiece struct {
+	checksum Hash
+	// size      int
+	numBlocks int
+	block     []byte
+}
+
+func NewTorrentPiece(
+	checksum Hash,
+	size, blockSize int,
+) (piece *TorrentPiece, keys iter.Seq[PieceKey]) {
+	piece = &TorrentPiece{
+		checksum: checksum,
+		// numBlocks: ,
+		block: make([]byte, size),
+	}
+
+	return
+}
 
 type pieceRegistry struct {
 	// requests Queue[RequestMessage]
 	checksum Hash
 	// length int
-	pieces map[int]*PieceBlock
+	index  map[PieceKey]*TorrentPiece
+	pieces []*TorrentPiece
+	done   chan PieceKey
 }
 
-func newPieceRegistry() *pieceRegistry {
+func newPieceRegistry(info *TorrentInfo) *pieceRegistry {
 	reg := &pieceRegistry{}
 
 	return reg
