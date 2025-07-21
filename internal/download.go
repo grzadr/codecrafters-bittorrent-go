@@ -20,15 +20,25 @@ const defaultFileMode = 0o644
 // 	block int
 // }
 
+// func ceilDiv(a, b int) (n, r int) {
+// 	return (a + b - 1) / b, a % b
+// }
+
+func chunkSize(size, chunk int) int {
+	return (size-1)%chunk + 1
+}
+
 func IterRequestMessage(index, size, block int) iter.Seq[RequestMessage] {
 	return func(yield func(RequestMessage) bool) {
-		for num := range size / block {
+		for num := range size / block - 1 {
 			if !yield(
 				RequestMessage{index: index, begin: num * block, block: block},
 			) {
 				return
 			}
 		}
+
+
 
 		if left := size % block; left > 0 {
 			if !yield(
@@ -170,15 +180,15 @@ type PieceKey struct {
 	begin int
 }
 
-func IterPieceKeys(index, size, blockSize int) iter.Seq[PieceKey] {
-	return func(yield func(PieceKey) bool) {
+func IterPieceKeys(index, size, blockSize int) iter.Seq2[PieceKey, int] {
+	return func(yield func(PieceKey, int) bool) {
 		for num := range size / blockSize {
 			if !yield(
-				RequestMessage{
+				PieceKey{
 					index: index,
 					begin: num * blockSize,
-					block: blockSize,
 				},
+				blockSize,
 			) {
 				return
 			}
@@ -186,7 +196,7 @@ func IterPieceKeys(index, size, blockSize int) iter.Seq[PieceKey] {
 
 		if left := size % blockSize; left > 0 {
 			if !yield(
-				RequestMessage{index: index, begin: size - left, block: left},
+				PieceKey{index: index, begin: size - left}, left,
 			) {
 				return
 			}
@@ -202,14 +212,17 @@ type TorrentPiece struct {
 }
 
 func NewTorrentPiece(
-	checksum Hash,
-	size, blockSize int,
-) (piece *TorrentPiece, keys iter.Seq[PieceKey]) {
+	index int,
+	info *TorrentInfo,
+) (piece *TorrentPiece, keys iter.Seq2[PieceKey, int]) {
+	size :=
 	piece = &TorrentPiece{
-		checksum: checksum,
+		checksum: info.pieces[index],
 		// numBlocks: ,
-		block: make([]byte, size),
+		block: make([]byte, info.pieceLength),
 	}
+
+	keys = IterPieceKeys()
 
 	return
 }
