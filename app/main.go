@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/codecrafters-io/bittorrent-starter-go/internal"
 )
@@ -23,7 +24,8 @@ func main() {
 	case "handshake":
 		fmt.Println(internal.CmdHandshake(os.Args[2], os.Args[3]))
 	case "download_piece":
-		internal.CmdDownloadPiece(os.Args[3], os.Args[4], os.Args[5])
+		index, _ := strconv.Atoi(os.Args[5])
+		internal.CmdDownloadPiece(os.Args[3], os.Args[4], index)
 	case "download":
 		internal.CmdDownload(os.Args[3], os.Args[4])
 	default:

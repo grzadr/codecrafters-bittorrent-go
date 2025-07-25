@@ -1,9 +1,13 @@
 package internal
 
 import (
+	"bufio"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"iter"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -145,6 +149,150 @@ func (req DiscoverRequest) peers() (p []*net.TCPAddr) {
 	}
 
 	return
+}
+
+type TorrentPeer struct {
+	id     string
+	owned  []byte
+	conn   *net.TCPConn
+	addr   *net.TCPAddr
+	reader *bufio.Reader
+}
+
+func NewTorrentPeer(
+	addr *net.TCPAddr,
+	handshake []byte,
+) (peer *TorrentPeer, err error) {
+	peer = &TorrentPeer{
+		addr: addr,
+	}
+
+	if err := peer.dial(); err != nil {
+		return peer, fmt.Errorf(
+			"failed to establish connection with %q: %w",
+			peer.addr,
+			err,
+		)
+	}
+
+	log.Println("conn established")
+
+	if err = peer.handshake(handshake); err != nil {
+		return peer, fmt.Errorf("error during handshake: %w", err)
+	}
+
+	log.Println("handshake performed")
+
+	return peer, err
+}
+
+func (peer *TorrentPeer) write(msg []byte) error {
+	totalWritten := 0
+
+	for totalWritten < len(msg) {
+		n, err := peer.conn.Write(msg[totalWritten:])
+		if err != nil {
+			return fmt.Errorf(
+				"write failed after %d bytes: %w",
+				totalWritten,
+				err,
+			)
+		}
+
+		if n == 0 {
+			return fmt.Errorf("zero bytes written without error")
+		}
+
+		totalWritten += n
+	}
+
+	return nil
+}
+
+func (peer *TorrentPeer) dial() (err error) {
+	peer.conn, err = net.DialTCP("tcp", nil, peer.addr)
+	if err != nil {
+		err = fmt.Errorf("error making connection: %s", err)
+
+		return
+	}
+
+	peer.reader = bufio.NewReader(peer.conn)
+
+	return
+}
+
+func (peer *TorrentPeer) interested() error {
+	if err := peer.write(NewInterestedMsg().encode()); err != nil {
+		return fmt.Errorf("error sending interested: %w", err)
+	}
+
+	found := false
+
+	for msg := range NewMessage(peer.reader) {
+		if msg.Err != nil {
+			return fmt.Errorf("failed to read unchoke: %w", msg.Err)
+		}
+
+		if msg.Type == Unchoke {
+			// log.Println("received unchoke")
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf(
+			"error sending interested: no unchoke message detected",
+		)
+	}
+
+	return nil
+}
+
+func (peer *TorrentPeer) handshake(
+	handshake []byte,
+) error {
+	if err := peer.write(handshake); err != nil {
+		return err
+	}
+
+	next, stop := iter.Pull(NewMessage(peer.reader))
+	defer stop()
+
+	response, ok := next()
+
+	if !ok || response.Err != nil {
+		return fmt.Errorf(
+			"failed to fetch initial handshake response: %w",
+			response.Err,
+		)
+	}
+
+	peer.id = hex.EncodeToString(response.content[response.Size-shaHashLength:])
+
+	response, ok = next()
+
+	if !ok {
+		return nil
+	}
+
+	if response.Err != nil {
+		return fmt.Errorf("error reading bitfield: %w", response.Err)
+	}
+
+	peer.owned = response.content
+
+	err := peer.interested()
+
+	return err
+}
+
+func (peer *TorrentPeer) close() {
+	peer.conn.Close()
+	peer.conn = nil
+	peer.reader = nil
 }
 
 func CmdPeers(path string) (s string) {

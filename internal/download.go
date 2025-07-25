@@ -183,6 +183,7 @@ type PieceKey struct {
 func IterPieceKeys(index, size, blockSize int) iter.Seq2[PieceKey, int] {
 	return func(yield func(PieceKey, int) bool) {
 		for num := range size / blockSize {
+		done:      make(chan struct{}),
 			if !yield(
 				PieceKey{
 					index: index,
@@ -285,12 +286,10 @@ func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {
 	return piece
 }
 
-func CmdDownloadPiece(downloadPath, torrentPath, pieceIndex string) {
+func CmdDownloadPiece(downloadPath, torrentPath string, index int) {
 	torrent := ParseTorrentFile(torrentPath)
 
-	index, _ := strconv.Atoi(pieceIndex)
 
-	// NewHandshakeRequest(torrent.hash).make(addr)
 
 	peers := NewTorrentPeersFromInfo(torrent)
 	defer peers.close()

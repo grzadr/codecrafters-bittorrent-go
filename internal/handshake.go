@@ -354,7 +354,33 @@ func (r HandshakeRequest) encode() []byte {
 
 // 	_, err = ReadNewMessage(peer.conn, Unchoke)
 // 	if err != nil {
-// 		peer.Err = fmt.Errorf("error read unchoke: %w", err)
+// 		peer.Err = fmt.Errorf("e// func (p *TorrentPeers) release(conn *PeerConnection) {
+// 	p.conn <- conn
+// }
+
+// func (t *TorrentPeers) withPiece(index int) (conns []*PeerConnectionPool) {
+// 	conns = make([]*PeerConnectionPool, 0, len(*t))
+
+// 	pos := index / byteSize
+// 	shift := byteSize - (index % byteSize) - 1
+
+// 	for range  {
+// 		conn := peers.acquire()
+// 		if conn.Err != nil {
+// 			panic(conn.Err)
+// 		}
+
+// 		peers.release(conn)
+// 	}
+
+// 	for _, peer := range *t {
+// 		if 0x01&(peer.owned[pos]>>shift) == 1 {
+// 			conns = append(conns, peer.pool)
+// 		}
+// 	}
+
+// 	return conns
+// }rror read unchoke: %w", err)
 // 	}
 
 // 	return peer
@@ -433,34 +459,6 @@ func (p *TorrentPeers) pick(index int) (peers []*PeerConnection) {
 
 	return peers
 }
-
-// func (p *TorrentPeers) release(conn *PeerConnection) {
-// 	p.conn <- conn
-// }
-
-// func (t *TorrentPeers) withPiece(index int) (conns []*PeerConnectionPool) {
-// 	conns = make([]*PeerConnectionPool, 0, len(*t))
-
-// 	pos := index / byteSize
-// 	shift := byteSize - (index % byteSize) - 1
-
-// 	for range  {
-// 		conn := peers.acquire()
-// 		if conn.Err != nil {
-// 			panic(conn.Err)
-// 		}
-
-// 		peers.release(conn)
-// 	}
-
-// 	for _, peer := range *t {
-// 		if 0x01&(peer.owned[pos]>>shift) == 1 {
-// 			conns = append(conns, peer.pool)
-// 		}
-// 	}
-
-// 	return conns
-// }
 
 func (t *TorrentPeers) close() {
 	for _, peer := range t.peers {
