@@ -8,11 +8,13 @@ import (
 	"iter"
 	"log"
 	"os"
-	"strconv"
 	"sync"
 )
 
-const defaultFileMode = 0o644
+const (
+	defaultFileMode  = 0o644
+	defaultBlockSize = 16 * 1024
+)
 
 // type PieceSpec struct {
 // 	index int
@@ -30,12 +32,16 @@ func chunkSize(size, chunk int) int {
 
 func IterRequestMessage(index, size, block int) iter.Seq[RequestMessage] {
 	return func(yield func(RequestMessage) bool) {
-		for num := range size / block - 1 {
+		num := 0
+		for total := size; total >= block;  total -= block {
 			if !yield(
 				RequestMessage{index: index, begin: num * block, block: block},
 			) {
 				return
 			}
+		}
+		for num := range size/block - 1 {
+
 		}
 
 
@@ -183,7 +189,6 @@ type PieceKey struct {
 func IterPieceKeys(index, size, blockSize int) iter.Seq2[PieceKey, int] {
 	return func(yield func(PieceKey, int) bool) {
 		for num := range size / blockSize {
-		done:      make(chan struct{}),
 			if !yield(
 				PieceKey{
 					index: index,
@@ -208,39 +213,65 @@ func IterPieceKeys(index, size, blockSize int) iter.Seq2[PieceKey, int] {
 type TorrentPiece struct {
 	checksum Hash
 	// size      int
-	numBlocks int
-	block     []byte
+	// numBlocks int
+	block []byte
 }
 
 func NewTorrentPiece(
 	index int,
 	info *TorrentInfo,
 ) (piece *TorrentPiece, keys iter.Seq2[PieceKey, int]) {
-	size :=
-	piece = &TorrentPiece{
-		checksum: info.pieces[index],
-		// numBlocks: ,
-		block: make([]byte, info.pieceLength),
+	size := info.pieceLength
+
+	if index+1 == len(info.pieces) {
+		size = chunkSize(info.length, size)
 	}
 
-	keys = IterPieceKeys()
+	piece = &TorrentPiece{
+		checksum: info.pieces[index],
+		block:    make([]byte, size),
+	}
+
+	keys = IterPieceKeys(index, size, defaultBlockSize)
 
 	return
 }
 
-type pieceRegistry struct {
+type TorrentIndex struct {
 	// requests Queue[RequestMessage]
 	checksum Hash
 	// length int
-	index  map[PieceKey]*TorrentPiece
-	pieces []*TorrentPiece
-	done   chan PieceKey
+	keys      map[PieceKey]*TorrentPiece
+	pieces    []*TorrentPiece
+	send      chan *PieceMessage
+	completed []PieceKey
+	// done   chan PieceKey
 }
 
-func newPieceRegistry(info *TorrentInfo) *pieceRegistry {
-	reg := &pieceRegistry{}
+func newTorrentIndexEmpty(info *TorrentInfo) (index *TorrentIndex) {
+	numBlocks := info.length/defaultBlockSize + 1
+	index = &TorrentIndex{
+		keys:      make(map[PieceKey]*TorrentPiece),
+		pieces:    make([]*TorrentPiece, len(info.pieces)),
+		send:      make(chan *PieceMessage, 1),
+		completed: make([]PieceKey, 0, numBlocks),
+	}
 
-	return reg
+	return
+}
+
+func newTorrentIndex(info *TorrentInfo) (index *TorrentIndex) {
+	index = newTorrentIndexEmpty(info)
+
+	for num := range len(info.pieces) {
+		piece, iter := NewTorrentPiece(num, info)
+
+		index.pieces = append(index.pieces, piece)
+
+		for
+	}
+
+	return
 }
 
 func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {
@@ -288,8 +319,6 @@ func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {
 
 func CmdDownloadPiece(downloadPath, torrentPath string, index int) {
 	torrent := ParseTorrentFile(torrentPath)
-
-
 
 	peers := NewTorrentPeersFromInfo(torrent)
 	defer peers.close()

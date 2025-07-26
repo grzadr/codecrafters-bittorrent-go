@@ -354,7 +354,8 @@ func (r HandshakeRequest) encode() []byte {
 
 // 	_, err = ReadNewMessage(peer.conn, Unchoke)
 // 	if err != nil {
-// 		peer.Err = fmt.Errorf("e// func (p *TorrentPeers) release(conn *PeerConnection) {
+// 		peer.Err = fmt.Errorf("e// func (p *TorrentPeers) release(conn
+// *PeerConnection) {
 // 	p.conn <- conn
 // }
 
