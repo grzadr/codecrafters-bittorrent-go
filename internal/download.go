@@ -22,37 +22,37 @@ const (
 // 	block int
 // }
 
-// func ceilDiv(a, b int) (n, r int) {
-// 	return (a + b - 1) / b, a % b
-// }
+func ceilDiv(a, b int) int {
+	return (a + b - 1) / b
+}
 
 func chunkSize(size, chunk int) int {
 	return (size-1)%chunk + 1
 }
 
-func IterRequestMessage(index, size, block int) iter.Seq[RequestMessage] {
+func IterRequestMessage(index, size, blockSize int) iter.Seq[RequestMessage] {
 	return func(yield func(RequestMessage) bool) {
-		num := 0
-		for total := size; total >= block;  total -= block {
+		numBlocks := ceilDiv(size, blockSize)
+
+		for num := range numBlocks - 1 {
 			if !yield(
-				RequestMessage{index: index, begin: num * block, block: block},
+				RequestMessage{
+					index: index,
+					begin: num * blockSize,
+					block: blockSize,
+				},
 			) {
 				return
 			}
 		}
-		for num := range size/block - 1 {
 
-		}
-
-
-
-		if left := size % block; left > 0 {
-			if !yield(
-				RequestMessage{index: index, begin: size - left, block: left},
-			) {
-				return
-			}
-		}
+		yield(
+			RequestMessage{
+				index: index,
+				begin: numBlocks * blockSize,
+				block: chunkSize(size, blockSize),
+			},
+		)
 	}
 }
 
@@ -186,29 +186,27 @@ type PieceKey struct {
 	begin int
 }
 
-func IterPieceKeys(index, size, blockSize int) iter.Seq2[PieceKey, int] {
-	return func(yield func(PieceKey, int) bool) {
-		for num := range size / blockSize {
-			if !yield(
-				PieceKey{
-					index: index,
-					begin: num * blockSize,
-				},
-				blockSize,
-			) {
-				return
-			}
-		}
+// func IterPieceKeys(index, size, blockSize int) iter.Seq2[PieceKey, int] {
+// 	return func(yield func(PieceKey, int) bool) {
+// 		numBlocks := ceilDiv(size, blockSize)
 
-		if left := size % blockSize; left > 0 {
-			if !yield(
-				PieceKey{index: index, begin: size - left}, left,
-			) {
-				return
-			}
-		}
-	}
-}
+// 		for num := range numBlocks - 1 {
+// 			if !yield(
+// 				PieceKey{index: index, begin: num * blockSize}, block,
+// 			) {
+// 				return
+// 			}
+// 		}
+
+// 		yield(
+// 			PieceKey{
+// 				index: index,
+// 				begin: num * blockSize,
+// 			},
+// 			chunkSize(size, block),
+// 		)
+// 	}
+// }
 
 type TorrentPiece struct {
 	checksum Hash
@@ -220,7 +218,7 @@ type TorrentPiece struct {
 func NewTorrentPiece(
 	index int,
 	info *TorrentInfo,
-) (piece *TorrentPiece, keys iter.Seq2[PieceKey, int]) {
+) (piece *TorrentPiece, keys iter.Seq[RequestMessage]) {
 	size := info.pieceLength
 
 	if index+1 == len(info.pieces) {
@@ -232,7 +230,7 @@ func NewTorrentPiece(
 		block:    make([]byte, size),
 	}
 
-	keys = IterPieceKeys(index, size, defaultBlockSize)
+	keys = IterRequestMessage(index, size, defaultBlockSize)
 
 	return
 }
@@ -241,20 +239,24 @@ type TorrentIndex struct {
 	// requests Queue[RequestMessage]
 	checksum Hash
 	// length int
-	keys      map[PieceKey]*TorrentPiece
-	pieces    []*TorrentPiece
-	send      chan *PieceMessage
-	completed []PieceKey
+	requests []RequestMessage
+	pieces   []*TorrentPiece
+	send     chan *PieceMessage
+	// failed []RequestMessage
 	// done   chan PieceKey
 }
 
 func newTorrentIndexEmpty(info *TorrentInfo) (index *TorrentIndex) {
-	numBlocks := info.length/defaultBlockSize + 1
+	// numBlocks := info.length/defaultBlockSize + 1
 	index = &TorrentIndex{
-		keys:      make(map[PieceKey]*TorrentPiece),
-		pieces:    make([]*TorrentPiece, len(info.pieces)),
-		send:      make(chan *PieceMessage, 1),
-		completed: make([]PieceKey, 0, numBlocks),
+		requests: make(
+			[]RequestMessage,
+			0,
+			ceilDiv(info.length, defaultBlockSize),
+		),
+		pieces: make([]*TorrentPiece, len(info.pieces)),
+		send:   make(chan *PieceMessage, 1),
+		// completed: make([]PieceKey, 0, numBlocks),
 	}
 
 	return
@@ -268,7 +270,22 @@ func newTorrentIndex(info *TorrentInfo) (index *TorrentIndex) {
 
 		index.pieces = append(index.pieces, piece)
 
-		for
+		for msg := range iter {
+			index.requests = append(index.requests, msg)
+		}
+	}
+
+	return
+}
+
+func newTorrentIndexSingle(num int, info *TorrentInfo) (index *TorrentIndex) {
+	index = newTorrentIndexEmpty(info)
+	piece, iter := NewTorrentPiece(num, info)
+
+	index.pieces = append(index.pieces, piece)
+
+	for msg := range iter {
+		index.requests = append(index.requests, msg)
 	}
 
 	return
@@ -277,11 +294,9 @@ func newTorrentIndex(info *TorrentInfo) (index *TorrentIndex) {
 func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {
 	// peerPools := peers.withPiece(index)
 	// log.Printf("number of peer pools: %d", len(peerPools))
-	handler := NewTorrentRequestHandler(defaultQueueSize)
-	defer handler.Close()
-
+	// handler := NewTorrentRequestHandler(defaultQueueSize)
+	// defer handler.Close()
 	// responses := make([]PiecePayload, 0, chunks)
-
 	var wg sync.WaitGroup
 
 	piece = make([]byte, length)
