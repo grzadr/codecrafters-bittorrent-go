@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"iter"
+	"sync"
 )
 
 const (
@@ -239,6 +240,7 @@ type TorrentIndex struct {
 	keys     map[PieceKey]*TorrentPiece
 	pieces   []*TorrentPiece
 	send     chan PieceMessage
+	wait     *sync.WaitGroup
 	// failed []RequestMessage
 	// done   chan PieceKey
 }
@@ -257,6 +259,7 @@ func newTorrentIndexEmpty(
 		pieces: make([]*TorrentPiece, len(info.pieces)),
 		// send:   make(chan *PieceMessage, 1),
 		send: send,
+		wait: &sync.WaitGroup,
 		// completed: make([]PieceKey, 0, numBlocks),
 	}
 
@@ -300,11 +303,16 @@ func newTorrentIndexSingle(
 	return
 }
 
-func (i *TorrentIndex) exec(send <-chan PieceMessage) {
+func (i *TorrentIndex) exec() {
 	for msg := range i.send {
 		piece := i.keys[msg.key()]
 		copy(piece.block[msg.begin:], piece.block)
+		i.wait.Done()
 	}
+}
+
+func (i *TorrentIndex) add(n int) {
+	i.wait.Add(n)
 }
 
 func downloadPiece(
