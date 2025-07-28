@@ -22,6 +22,7 @@ const (
 	defaultRequestTimeout = 30 * time.Second
 	defaultClientId       = "GO-CLIENT-1234567890"
 	defaultIpAddressSize  = 6
+	defaultPeerBuffer     = 128 * 1024
 )
 
 // type PeerIP net.TCPAddr
@@ -217,7 +218,7 @@ func (peer *TorrentPeer) dial() (err error) {
 		return
 	}
 
-	peer.reader = bufio.NewReader(peer.conn)
+	peer.reader = bufio.NewReaderSize(peer.conn, defaultPeerBuffer)
 
 	return
 }
@@ -293,6 +294,38 @@ func (peer *TorrentPeer) close() {
 	peer.conn.Close()
 	peer.conn = nil
 	peer.reader = nil
+}
+
+func allTorrentPeers(info *TorrentInfo) (peers []*TorrentPeer, err error) {
+	addresses := NewDiscoverRequest(info).peers()
+	peers = make([]*TorrentPeer, len(addresses))
+	handshake := NewHandshakeRequest(info.hash)
+
+	for i, addr := range addresses {
+		if peers[i], err = NewTorrentPeer(addr, handshake); err != nil {
+			break
+		}
+	}
+
+	return
+}
+
+func CmdHandshake(path, ip string) (id string) {
+	torrent := ParseTorrentFile(path)
+
+	handshake := NewHandshakeRequest(torrent.hash)
+
+	peer, err := NewTorrentPeer(ParsePeerIP(ip), handshake)
+	if err != nil {
+		panic(err)
+	}
+
+	defer peer.close()
+
+	return fmt.Sprintf(
+		"Peer ID: %s",
+		peer.id,
+	)
 }
 
 func CmdPeers(path string) (s string) {

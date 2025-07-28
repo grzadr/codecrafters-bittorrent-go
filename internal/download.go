@@ -1,14 +1,7 @@
 package internal
 
 import (
-	"bytes"
-	"crypto/sha1"
-	"errors"
-	"fmt"
 	"iter"
-	"log"
-	"os"
-	"sync"
 )
 
 const (
@@ -108,36 +101,36 @@ func Zip[A, B any](a iter.Seq[A], b iter.Seq[B]) iter.Seq2[A, B] {
 // 	}
 // }
 
-func receivePiece(
-	recv <-chan TorrentResponse,
-	wg *sync.WaitGroup,
-	piece *[]byte,
-) {
-	for resp := range recv {
-		if resp.done {
-			log.Println("receiver is done")
+// func receivePiece(
+// 	recv <-chan TorrentResponse,
+// 	wg *sync.WaitGroup,
+// 	piece *[]byte,
+// ) {
+// 	for resp := range recv {
+// 		if resp.done {
+// 			log.Println("receiver is done")
 
-			return
-		}
+// 			return
+// 		}
 
-		if resp.Err != nil {
-			panic(resp.Err)
-		}
+// 		if resp.Err != nil {
+// 			panic(resp.Err)
+// 		}
 
-		if len(resp.Resp) != 0 {
-			msg := NewPiecePayload(resp.Resp)
+// 		if len(resp.Resp) != 0 {
+// 			msg := NewPiecePayload(resp.Resp)
 
-			log.Printf("copy %d %d\n", msg.index, msg.begin)
+// 			log.Printf("copy %d %d\n", msg.index, msg.begin)
 
-			copy((*piece)[msg.begin:], msg.block)
-		} else {
-			log.Println("zero message")
-			// continue
-		}
+// 			copy((*piece)[msg.begin:], msg.block)
+// 		} else {
+// 			log.Println("zero message")
+// 			// continue
+// 		}
 
-		wg.Done()
-	}
-}
+// 		wg.Done()
+// 	}
+// }
 
 type Queue[T any] struct {
 	items []T
@@ -291,71 +284,74 @@ func newTorrentIndexSingle(num int, info *TorrentInfo) (index *TorrentIndex) {
 	return
 }
 
-func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {
-	// peerPools := peers.withPiece(index)
-	// log.Printf("number of peer pools: %d", len(peerPools))
-	// handler := NewTorrentRequestHandler(defaultQueueSize)
-	// defer handler.Close()
-	// responses := make([]PiecePayload, 0, chunks)
-	var wg sync.WaitGroup
+// func downloadPiece(index, length int, peers TorrentPeers) (piece []byte) {
+// peerPools := peers.withPiece(index)
+// log.Printf("number of peer pools: %d", len(peerPools))
+// handler := NewTorrentRequestHandler(defaultQueueSize)
+// defer handler.Close()
+// responses := make([]PiecePayload, 0, chunks)
+// var wg sync.WaitGroup
+// piece = make([]byte, length)
 
-	piece = make([]byte, length)
+// // iter :=
 
-	// iter :=
+// i := 0
 
-	i := 0
+// picked := peers.pick(index)
+// pickedLen := len(picked)
 
-	picked := peers.pick(index)
-	pickedLen := len(picked)
+// for msg := range IterRequestMessage(index, length, defaultBufferSize) {
+// 	wg.Add(1)
 
-	for msg := range IterRequestMessage(index, length, defaultBufferSize) {
-		wg.Add(1)
+// 	shift := i % pickedLen
 
-		shift := i % pickedLen
+// 	handler.send <- TorrentRequest{
+// 		Peers: append(picked[shift:], picked[:shift]...),
+// 		Msg:   msg,
+// 	}
 
-		handler.send <- TorrentRequest{
-			Peers: append(picked[shift:], picked[:shift]...),
-			Msg:   msg,
-		}
+// 	i++
+// }
 
-		i++
-	}
+// go receivePiece(handler.recv, &wg, &piece)
 
-	go receivePiece(handler.recv, &wg, &piece)
+// log.Printf("waiting for %d\n", i)
 
-	log.Printf("waiting for %d\n", i)
+// wg.Wait()
 
-	wg.Wait()
+// log.Println("returning piece")
 
-	log.Println("returning piece")
-
-	return piece
-}
+// 	return piece
+// }
 
 func CmdDownloadPiece(downloadPath, torrentPath string, index int) {
 	torrent := ParseTorrentFile(torrentPath)
 
-	peers := NewTorrentPeersFromInfo(torrent)
-	defer peers.close()
+	send := make(chan PieceMessage, 1)
 
-	piece := downloadPiece(index, torrent.pieceLength, peers)
-
-	hash := sha1.Sum(piece)
-	if !bytes.Equal(hash[:], torrent.pieces[index][:]) {
-		panic("piece hash differ")
+	_, err := allTorrentHandlers(torrent, send)
+	if err != nil {
+		panic(err)
 	}
-
-	log.Printf("writing %d bytes to %q", len(piece), downloadPath)
-
-	if err := os.WriteFile(downloadPath, piece, defaultFileMode); err != nil {
-		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
-	}
-
-	if _, err := os.Stat(downloadPath); errors.Is(err, os.ErrNotExist) {
-		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
-	}
-
-	log.Println("file saved")
+	// piece := downloadPiece(index, torrent.pieceLength, peers)
+	// hash := sha1.Sum(piece)
+	//
+	//	if !bytes.Equal(hash[:], torrent.pieces[index][:]) {
+	//		panic("piece hash differ")
+	//	}
+	//
+	// log.Printf("writing %d bytes to %q", len(piece), downloadPath)
+	// if err := os.WriteFile(downloadPath, piece, defaultFileMode); err != nil
+	//
+	//	{
+	// 		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
+	//	}
+	//
+	//	if _, err := os.Stat(downloadPath); errors.Is(err, os.ErrNotExist) {
+	// 		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
+	//	}
+	//
+	// log.Println("file saved")
 }
 
 func CmdDownload(downloadPath, torrentPath string) {

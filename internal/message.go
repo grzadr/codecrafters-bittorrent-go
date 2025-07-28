@@ -11,6 +11,31 @@ import (
 	"log"
 )
 
+const (
+	handshakeMsgLength = 68
+	handshakePrefix    = "\x13Bit"
+	int32Size          = 4
+	msgLengthBytes     = 4
+	requestFieldsNum   = 3
+	// protocoLength      = 19.
+	protocolName = "\x13BitTorrent protocol"
+	// 	handshakePrefix       = "\x13Bit"
+	// 	handshakePrefixLength = len(handshakePrefix)
+	protocolReservedBytes = 8
+)
+
+func NewHandshakeRequest(hash Hash) []byte {
+	message := make([]byte, handshakeMsgLength)
+	// message[0] = byte(len(prto))
+	offset := 0
+	offset += copy(message[offset:], []byte(protocolName))
+	offset += protocolReservedBytes
+	offset += copy(message[offset:], hash[:])
+	copy(message[offset:], []byte(defaultClientId))
+
+	return message
+}
+
 func intToBytes(n int, buf []byte) {
 	binary.BigEndian.PutUint32(buf, uint32(n))
 }
@@ -181,6 +206,23 @@ func NewPiecePayload(data []byte) (piece PieceMessage) {
 	piece.index = bytesToInt(data[:int32Size])
 	piece.begin = bytesToInt(data[int32Size : int32Size*2])
 	piece.block = data[int32Size*2:]
+
+	return
+}
+
+func NewInterestedMsg() Message {
+	return Message{
+		Type:    Interested,
+		content: []byte{},
+	}
+}
+
+func (m Message) encode() (msg []byte) {
+	contentLength := len(m.content) + 1
+	msg = make([]byte, msgLengthBytes+contentLength)
+	intToBytes(contentLength, msg)
+	msg[msgLengthBytes] = byte(m.Type)
+	copy(msg[msgLengthBytes+1:], m.content[:])
 
 	return
 }

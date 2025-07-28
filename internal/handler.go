@@ -1,31 +1,24 @@
 package internal
 
-import (
-	"bufio"
-	"fmt"
-	"log"
-	"time"
-)
-
 const (
-	defaultQueueSize      = 64
-	defaultByteBuffer     = 64 * 1024
-	defaultTickInterval   = 100 * time.Millisecond
-	defaultPeerChanBuffer = 5
+	// 	defaultQueueSize      = 64
+	// 	defaultByteBuffer     = 64 * 1024
+	// 	defaultTickInterval   = 100 * time.Millisecond
+	defaultHandlerChanSize = 5
 )
 
-type TorrentRequest struct {
-	// Pool *TorrentPeers
-	Peers []*PeerConnection
-	Msg   RequestMessage
-}
+// type TorrentRequest struct {
+// 	// Pool *TorrentPeers
+// 	Peers []*PeerConnection
+// 	Msg   RequestMessage
+// }
 
-type TorrentResponse struct {
-	Resp []byte
-	Req  RequestMessage
-	Err  error
-	done bool
-}
+// type TorrentResponse struct {
+// 	Resp []byte
+// 	Req  RequestMessage
+// 	Err  error
+// 	done bool
+// }
 
 // type BufferedConn struct {
 // 	conn   *net.TCPConn
@@ -41,205 +34,205 @@ type TorrentResponse struct {
 // 	}
 // }
 
-func NewTorrentResponse(
-	pool *PeerConnectionPool,
-	msg RequestMessage,
-) (resp TorrentResponse) {
-	conn := pool.acquire()
-	defer pool.release()
+// func NewTorrentResponse(
+// 	pool *PeerConnectionPool,
+// 	msg RequestMessage,
+// ) (resp TorrentResponse) {
+// 	conn := pool.acquire()
+// 	defer pool.release()
 
-	if err := sendEncoded(conn, msg.encode()); err != nil {
-		resp.Err = err
+// 	if err := sendEncoded(conn, msg.encode()); err != nil {
+// 		resp.Err = err
 
-		return resp
-	}
+// 		return resp
+// 	}
 
-	reader := bufio.NewReaderSize(conn, defaultByteBuffer)
+// 	reader := bufio.NewReaderSize(conn, defaultByteBuffer)
 
-	// reader := bufio.NewReaderSize(conn, defaultByteBuffer)
-	// lengthBuf := make([]byte, int32Size)
-	// // resp.Resp = make([]byte, defaultTcpBuffer)
-	// total := 0
+// 	// reader := bufio.NewReaderSize(conn, defaultByteBuffer)
+// 	// lengthBuf := make([]byte, int32Size)
+// 	// // resp.Resp = make([]byte, defaultTcpBuffer)
+// 	// total := 0
 
-	log.Println("reading in a loop")
+// 	log.Println("reading in a loop")
 
-	for msg := range NewMessage(reader) {
-		if msg.Err != nil {
-			resp.Err = fmt.Errorf("error reading message: %w", msg.Err)
+// 	for msg := range NewMessage(reader) {
+// 		if msg.Err != nil {
+// 			resp.Err = fmt.Errorf("error reading message: %w", msg.Err)
 
-			return resp
-		}
+// 			return resp
+// 		}
 
-		if msg.Type != Piece {
-			log.Println(msg.Type)
+// 		if msg.Type != Piece {
+// 			log.Println(msg.Type)
 
-			continue
-		}
+// 			continue
+// 		}
 
-		resp.Resp = msg.content
+// 		resp.Resp = msg.content
 
-		break
-	}
+// 		break
+// 	}
 
-	// for {
-	// 	if _, err := io.ReadFull(reader, lengthBuf); err == io.EOF {
-	// 		break
-	// 	} else if err != nil {
-	// 		resp.Err = fmt.Errorf("error reading length: %w", err)
+// for {
+// 	if _, err := io.ReadFull(reader, lengthBuf); err == io.EOF {
+// 		break
+// 	} else if err != nil {
+// 		resp.Err = fmt.Errorf("error reading length: %w", err)
 
-	// 		return resp
-	// 	}
+// 		return resp
+// 	}
 
-	// 	length := bytesToInt(lengthBuf)
+// 	length := bytesToInt(lengthBuf)
 
-	// 	log.Printf("reading message of size %d", length)
+// 	log.Printf("reading message of size %d", length)
 
-	// 	if length == 0 {
-	// 		log.Println("skip empty")
+// 	if length == 0 {
+// 		log.Println("skip empty")
 
-	// 		continue
-	// 	}
+// 		continue
+// 	}
 
-	// 	msgByte, err := reader.ReadByte()
-	// 	if err != nil {
-	// 		resp.Err = fmt.Errorf("error reading msg type: %w", err)
+// 	msgByte, err := reader.ReadByte()
+// 	if err != nil {
+// 		resp.Err = fmt.Errorf("error reading msg type: %w", err)
 
-	// 		return resp
-	// 	}
+// 		return resp
+// 	}
 
-	// 	log.Printf("read message byte: %08b", msgByte)
+// 	log.Printf("read message byte: %08b", msgByte)
 
-	// 	if msgType := MessageType(msgByte); msgType != Piece {
-	// 		resp.Err = fmt.Errorf("expected piece, got %s", msgType)
+// 	if msgType := MessageType(msgByte); msgType != Piece {
+// 		resp.Err = fmt.Errorf("expected piece, got %s", msgType)
 
-	// 		return resp
-	// 	}
+// 		return resp
+// 	}
 
-	// 	// if length > 1 {
-	// 	n := 0
+// 	// if length > 1 {
+// 	n := 0
 
-	// 	resp.Resp = make([]byte, length-1)
-	// 	if n, err = io.ReadFull(reader, resp.Resp); err != nil {
-	// 		resp.Err = fmt.Errorf("error reading payload: %w", err)
+// 	resp.Resp = make([]byte, length-1)
+// 	if n, err = io.ReadFull(reader, resp.Resp); err != nil {
+// 		resp.Err = fmt.Errorf("error reading payload: %w", err)
 
-	// 		return resp
-	// 	}
+// 		return resp
+// 	}
 
-	// 	total += n
-	// 	// }
+// 	total += n
+// 	// }
 
-	// 	break
-	// }
+// 	break
+// }
 
-	// resp.Resp = resp.Resp[:total]
+// resp.Resp = resp.Resp[:total]
 
-	return resp
-	// buf := make([]byte, defaultResponseBufferSize)
-	// offset := 0
-	// total := 0
-	// interested := false
-	//
-	//	for {
-	//		if total == length+13 {
-	//			break
-	//		}
-	//		n, err := conn.Read(buf)
-	//		log.Printf("read new %d, total %d bytes for %+v", n, total, msg)
-	//		if err == io.EOF {
-	//			if interested {
-	//				break
-	//			} else {
-	//				sendInterested(conn)
-	//				interested = true
-	//			}
-	//		} else if err != nil {
-	//			resp.Err = fmt.Errorf("error reading piece %+v: %w", msg, err)
-	//			break
-	//		}
-	//		copy(resp.Resp[offset:], buf[:n])
-	//		offset += n
-	//		total += n
-	//	}
-	//
-	// // n, err := conn.Read(buf)
-	// // log.Printf("read %d bytes", n)
-	// // if err != nil {
-	// // 	resp.Err = fmt.Errorf("error reading piece %+v: %w", msg, err)
-	// // 	return resp
-	// // }
-	// resp.Resp = resp.Resp[:total]
-	// // log.Printf("finished reading piece %+v: %d bytes read", msg, total)
-	// return resp
-}
+// return resp
+// buf := make([]byte, defaultResponseBufferSize)
+// offset := 0
+// total := 0
+// interested := false
+//
+//	for {
+//		if total == length+13 {
+//			break
+//		}
+//		n, err := conn.Read(buf)
+//		log.Printf("read new %d, total %d bytes for %+v", n, total, msg)
+//		if err == io.EOF {
+//			if interested {
+//				break
+//			} else {
+//				sendInterested(conn)
+//				interested = true
+//			}
+//		} else if err != nil {
+//			resp.Err = fmt.Errorf("error reading piece %+v: %w", msg, err)
+//			break
+//		}
+//		copy(resp.Resp[offset:], buf[:n])
+//		offset += n
+//		total += n
+//	}
+//
+// // n, err := conn.Read(buf)
+// // log.Printf("read %d bytes", n)
+// // if err != nil {
+// // 	resp.Err = fmt.Errorf("error reading piece %+v: %w", msg, err)
+// // 	return resp
+// // }
+// resp.Resp = resp.Resp[:total]
+// // log.Printf("finished reading piece %+v: %d bytes read", msg, total)
+// return resp
+// }
 
-type TorrentRequestHandler struct {
-	send chan TorrentRequest
-	recv chan TorrentResponse
-	done chan struct{}
-}
+// type TorrentRequestHandler struct {
+// 	send chan TorrentRequest
+// 	recv chan TorrentResponse
+// 	done chan struct{}
+// }
 
-func NewTorrentRequestHandler(buffer int) (handler *TorrentRequestHandler) {
-	handler = &TorrentRequestHandler{
-		send: make(chan TorrentRequest, buffer),
-		recv: make(chan TorrentResponse, buffer),
-		done: make(chan struct{}, 1),
-	}
+// func NewTorrentRequestHandler(buffer int) (handler *TorrentRequestHandler) {
+// 	handler = &TorrentRequestHandler{
+// 		send: make(chan TorrentRequest, buffer),
+// 		recv: make(chan TorrentResponse, buffer),
+// 		done: make(chan struct{}, 1),
+// 	}
 
-	go handler.exec()
+// 	go handler.exec()
 
-	return handler
-}
+// 	return handler
+// }
 
-func (h *TorrentRequestHandler) Close() {
-	defer close(h.done)
-}
+// func (h *TorrentRequestHandler) Close() {
+// 	defer close(h.done)
+// }
 
-func (h *TorrentRequestHandler) exec() {
-	ticker := time.NewTicker(defaultTickInterval)
-	defer ticker.Stop()
-	defer close(h.send)
-	defer close(h.recv)
+// func (h *TorrentRequestHandler) exec() {
+// 	ticker := time.NewTicker(defaultTickInterval)
+// 	defer ticker.Stop()
+// 	defer close(h.send)
+// 	defer close(h.recv)
 
-	for {
-		select {
-		case req := <-h.send:
-			log.Printf("received request: %+v\n", req)
+// 	for {
+// 		select {
+// 		case req := <-h.send:
+// 			log.Printf("received request: %+v\n", req)
 
-			go func() {
-				// if req.Pool == nil {
-				// 	log.Println("done")
-				// 	h.recv <- TorrentResponse{done: true}
-				// 	return
-				// }
-				for range 3 {
-					for _, peer := range req.Peers {
-						resp := NewTorrentResponse(peer.pool, req.Msg)
+// 			go func() {
+// 				// if req.Pool == nil {
+// 				// 	log.Println("done")
+// 				// 	h.recv <- TorrentResponse{done: true}
+// 				// 	return
+// 				// }
+// 				for range 3 {
+// 					for _, peer := range req.Peers {
+// 						resp := NewTorrentResponse(peer.pool, req.Msg)
 
-						if resp.Err != nil {
-							panic(resp.Err)
-						}
+// 						if resp.Err != nil {
+// 							panic(resp.Err)
+// 						}
 
-						if len(resp.Resp) == 0 {
-							continue
-						}
+// 						if len(resp.Resp) == 0 {
+// 							continue
+// 						}
 
-						h.recv <- resp
+// 						h.recv <- resp
 
-						return
-					}
+// 						return
+// 					}
 
-					time.Sleep(100 * time.Millisecond)
-				}
+// 					time.Sleep(100 * time.Millisecond)
+// 				}
 
-				panic("failed to download piece")
-			}()
-		case <-h.done:
-			return
-		default:
-			time.Sleep(defaultTickInterval)
-		}
-	}
-}
+// 				panic("failed to download piece")
+// 			}()
+// 		case <-h.done:
+// 			return
+// 		default:
+// 			time.Sleep(defaultTickInterval)
+// 		}
+// 	}
+// }
 
 // func (h *TorrentRequestHandler) sendPayload(
 // 	pool *PeerConnectionPool,
@@ -248,20 +241,40 @@ func (h *TorrentRequestHandler) exec() {
 // 	h.send <- TorrentRequest{Pool: pool, Msg: payload, expected}
 // }
 
-func CmdHandshake(path, ip string) (id string) {
-	torrent := ParseTorrentFile(path)
+type TorrentHandler struct {
+	conn *TorrentPeer
+	recv chan RequestMessage
+	send chan PieceMessage
+	done chan struct{}
+}
 
-	handshake := NewHandshakeRequest(torrent.hash).encode()
+func newTorrentHandler(
+	peer *TorrentPeer,
+	send chan PieceMessage,
+) *TorrentHandler {
+	return &TorrentHandler{
+		conn: peer,
+		recv: make(chan RequestMessage, defaultHandlerChanSize),
+		send: send,
+		done: make(chan struct{}, 1),
+	}
+}
 
-	peer, err := NewTorrentPeer(ParsePeerIP(ip), handshake)
+type TorrentHandlers []*TorrentHandler
+
+func allTorrentHandlers(
+	info *TorrentInfo,
+	send chan PieceMessage,
+) (handlers TorrentHandlers, err error) {
+	peers, err := allTorrentPeers(info)
 	if err != nil {
-		panic(err)
+		return
 	}
 
-	defer peer.close()
+	handlers = make(TorrentHandlers, len(peers))
+	for i, peer := range peers {
+		handlers[i] = newTorrentHandler(peer, send)
+	}
 
-	return fmt.Sprintf(
-		"Peer ID: %s",
-		peer.id,
-	)
+	return
 }
