@@ -189,6 +189,10 @@ func (m RequestMessage) encode() (msg []byte) {
 	return
 }
 
+func (p RequestMessage) key() PieceKey {
+	return PieceKey{index: p.index, begin: p.begin}
+}
+
 type PieceMessage struct {
 	index int
 	begin int
@@ -208,6 +212,10 @@ func NewPiecePayload(data []byte) (piece PieceMessage) {
 	piece.block = data[int32Size*2:]
 
 	return
+}
+
+func (p PieceMessage) key() PieceKey {
+	return PieceKey{index: p.index, begin: p.begin}
 }
 
 func NewInterestedMsg() Message {

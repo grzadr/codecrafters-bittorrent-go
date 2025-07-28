@@ -19,10 +19,11 @@ import (
 
 const (
 	defaultTrackerPort    = 6681
-	defaultRequestTimeout = 30 * time.Second
+	defaultRequestTimeout = 10 * time.Second
 	defaultClientId       = "GO-CLIENT-1234567890"
 	defaultIpAddressSize  = 6
 	defaultPeerBuffer     = 128 * 1024
+	byteSize              = 8
 )
 
 // type PeerIP net.TCPAddr
@@ -294,6 +295,13 @@ func (peer *TorrentPeer) close() {
 	peer.conn.Close()
 	peer.conn = nil
 	peer.reader = nil
+}
+
+func (peer *TorrentPeer) hasPiece(num int) bool {
+	pos := num / byteSize
+	shift := byteSize - (num % byteSize) - 1
+
+	return 0x01&(peer.owned[pos]>>shift) == 1
 }
 
 func allTorrentPeers(info *TorrentInfo) (peers []*TorrentPeer, err error) {

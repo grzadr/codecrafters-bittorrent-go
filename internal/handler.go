@@ -1,10 +1,17 @@
 package internal
 
+import (
+	"log"
+	"time"
+)
+
 const (
 	// 	defaultQueueSize      = 64
 	// 	defaultByteBuffer     = 64 * 1024
 	// 	defaultTickInterval   = 100 * time.Millisecond
 	defaultHandlerChanSize = 5
+	defaultSendRetryTime   = 50 * time.Millisecond
+	defaultRequestBuffer   = 128
 )
 
 // type TorrentRequest struct {
@@ -242,7 +249,7 @@ const (
 // }
 
 type TorrentHandler struct {
-	conn *TorrentPeer
+	peer *TorrentPeer
 	recv chan RequestMessage
 	send chan PieceMessage
 	done chan struct{}
@@ -253,28 +260,114 @@ func newTorrentHandler(
 	send chan PieceMessage,
 ) *TorrentHandler {
 	return &TorrentHandler{
-		conn: peer,
+		peer: peer,
 		recv: make(chan RequestMessage, defaultHandlerChanSize),
 		send: send,
 		done: make(chan struct{}, 1),
 	}
 }
 
-type TorrentHandlers []*TorrentHandler
+func (h *TorrentHandler) hasPiece(num int) bool {
+	return h.peer.hasPiece(num)
+}
 
-func allTorrentHandlers(
+func (h *TorrentHandler) sendRequest(msg RequestMessage) bool {
+	select {
+	case h.recv <- msg:
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *TorrentHandler) finalize() {
+	h.done <- struct{}{}
+}
+
+func (h *TorrentHandler) exec() {
+	writeBuff := [defaultRequestBuffer]byte{}
+
+	for {
+		clear(writeBuff[:])
+
+		count := 0
+		offset := 0
+
+		for range 5 {
+			select {
+			case msg := <-h.recv:
+				offset += copy(writeBuff[offset:], msg.encode())
+				count++
+			case <-time.After(defaultSendRetryTime):
+				break
+			case <-h.done:
+				return
+			}
+
+			log.Printf("sending %d messages")
+			h.peer.write(writeBuff[:offset])
+		}
+
+		for msg := range NewMessage(h.peer.reader) {
+			h.send <- NewPiecePayload(msg.content)
+		}
+	}
+}
+
+func (h *TorrentHandler) close() {
+	h.finalize()
+	h.peer.close()
+	close(h.recv)
+}
+
+type TorrentHandlers struct {
+	peers []*TorrentHandler
+	send  chan PieceMessage
+}
+
+func newTorrentHandlers(
 	info *TorrentInfo,
-	send chan PieceMessage,
 ) (handlers TorrentHandlers, err error) {
 	peers, err := allTorrentPeers(info)
 	if err != nil {
 		return
 	}
 
-	handlers = make(TorrentHandlers, len(peers))
+	handlers = TorrentHandlers{
+		peers: make([]*TorrentHandler, len(peers)),
+		send:  make(chan PieceMessage, 1),
+	}
+
+	// handlers = make(TorrentHandlers, len(peers))
 	for i, peer := range peers {
-		handlers[i] = newTorrentHandler(peer, send)
+		handlers.peers[i] = newTorrentHandler(peer, handlers.send)
 	}
 
 	return
+}
+
+func (h *TorrentHandlers) exec() {
+	for _, handler := range h.peers {
+		go handler.exec()
+	}
+}
+
+func (h *TorrentHandlers) close() {
+	for _, handler := range h.peers {
+		handler.close()
+	}
+
+	close(h.send)
+}
+
+func (h *TorrentHandlers) sendRequest(msg RequestMessage) {
+	for range 3 {
+		for _, peer := range h.peers {
+			if peer.hasPiece(msg.index) && peer.sendRequest(msg) {
+				return
+			}
+		}
+
+		time.Sleep(defaultSendRetryTime)
+	}
 }
