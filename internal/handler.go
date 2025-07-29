@@ -299,14 +299,14 @@ func (h *TorrentHandler) exec() {
 				offset += copy(writeBuff[offset:], msg.encode())
 				count++
 			case <-time.After(defaultSendRetryTime):
-				break
+				return
 			case <-h.done:
 				return
 			}
-
-			log.Printf("sending %d messages")
-			h.peer.write(writeBuff[:offset])
 		}
+
+		log.Printf("sending %d messages", count)
+		h.peer.write(writeBuff[:offset])
 
 		for msg := range NewMessage(h.peer.reader) {
 			h.send <- NewPiecePayload(msg.content)

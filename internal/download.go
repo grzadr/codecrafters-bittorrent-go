@@ -3,7 +3,11 @@ package internal
 import (
 	"bytes"
 	"crypto/sha1"
+	"errors"
+	"fmt"
 	"iter"
+	"log"
+	"os"
 	"sync"
 )
 
@@ -232,6 +236,14 @@ func NewTorrentPiece(
 	return
 }
 
+func (p TorrentPiece) verify() {
+	hash := sha1.Sum(p.block)
+	//
+	if !bytes.Equal(hash[:], p.checksum[:]) {
+		panic("piece hash differ")
+	}
+}
+
 type TorrentIndex struct {
 	// requests Queue[RequestMessage]
 	checksum Hash
@@ -240,7 +252,7 @@ type TorrentIndex struct {
 	keys     map[PieceKey]*TorrentPiece
 	pieces   []*TorrentPiece
 	send     chan PieceMessage
-	wait     *sync.WaitGroup
+	wg       *sync.WaitGroup
 	// failed []RequestMessage
 	// done   chan PieceKey
 }
@@ -259,7 +271,8 @@ func newTorrentIndexEmpty(
 		pieces: make([]*TorrentPiece, len(info.pieces)),
 		// send:   make(chan *PieceMessage, 1),
 		send: send,
-		wait: &sync.WaitGroup{},
+		wg:   &sync.WaitGroup{},
+		keys: make(map[PieceKey]*TorrentPiece),
 		// completed: make([]PieceKey, 0, numBlocks),
 	}
 
@@ -297,7 +310,7 @@ func newTorrentIndexSingle(
 
 	for msg := range iter {
 		index.requests = append(index.requests, msg)
-		index.keys[PieceKey{}] = piece
+		index.keys[msg.key()] = piece
 	}
 
 	return
@@ -307,26 +320,36 @@ func (i *TorrentIndex) exec() {
 	for msg := range i.send {
 		piece := i.keys[msg.key()]
 		copy(piece.block[msg.begin:], piece.block)
-		i.wait.Done()
+		i.wg.Done()
 	}
 }
 
 func (i *TorrentIndex) add(n int) {
-	i.wait.Add(n)
+	i.wg.Add(n)
+}
+
+func (i *TorrentIndex) wait() {
+	i.wg.Wait()
 }
 
 func downloadPiece(
 	num int,
 	info *TorrentInfo,
 	handlers TorrentHandlers,
-) (piece []byte) {
-	piece = make([]byte, info.length)
-
+) []byte {
 	index := newTorrentIndexSingle(num, info, handlers.send)
+	index.add(len(index.requests))
+
+	go index.exec()
 
 	for _, msg := range index.requests {
 		handlers.sendRequest(msg)
 	}
+
+	index.wait()
+
+	piece := index.pieces[0]
+	piece.verify()
 
 	// peerPools := peers.withPiece(index)
 	// log.Printf("number of peer pools: %d", len(peerPools))
@@ -363,7 +386,7 @@ func downloadPiece(
 
 	// log.Println("returning piece")
 
-	return piece
+	return piece.block
 }
 
 func CmdDownloadPiece(downloadPath, torrentPath string, index int) {
@@ -378,24 +401,17 @@ func CmdDownloadPiece(downloadPath, torrentPath string, index int) {
 	handlers.exec()
 
 	piece := downloadPiece(index, info, handlers)
-	hash := sha1.Sum(piece)
-	//
-	if !bytes.Equal(hash[:], info.pieces[index][:]) {
-		panic("piece hash differ")
+	log.Printf("writing %d bytes to %q", len(piece), downloadPath)
+
+	if err := os.WriteFile(downloadPath, piece, defaultFileMode); err != nil {
+		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
 	}
-	//
-	// log.Printf("writing %d bytes to %q", len(piece), downloadPath)
-	// if err := os.WriteFile(downloadPath, piece, defaultFileMode); err != nil
-	//
-	//	{
-	// 		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
-	//	}
-	//
-	//	if _, err := os.Stat(downloadPath); errors.Is(err, os.ErrNotExist) {
-	// 		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
-	//	}
-	//
-	// log.Println("file saved")
+
+	if _, err := os.Stat(downloadPath); errors.Is(err, os.ErrNotExist) {
+		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
+	}
+
+	log.Println("file saved")
 }
 
 func CmdDownload(downloadPath, torrentPath string) {
