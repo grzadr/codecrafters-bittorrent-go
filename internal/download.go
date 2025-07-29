@@ -260,7 +260,7 @@ type TorrentIndex struct {
 
 type CompletedKey struct {
 	PieceKey
-	failed bool
+	ok bool
 }
 
 func (k CompletedKey) key() PieceKey {
@@ -340,12 +340,21 @@ func (i *TorrentIndex) request(handlers TorrentHandlers) {
 		}
 
 		// wait:
+		count := 0
+
 		for range len(i.requests) {
 			key := <-i.done
-			if key.failed {
+			log.Println("received", key)
+
+			if key.ok {
+				log.Println("deleting", key)
 				delete(i.requests, key.key())
 			}
+
+			count++
 		}
+
+		log.Printf("completed %d requests", count)
 	}
 }
 
@@ -355,11 +364,11 @@ func (i *TorrentIndex) collect() {
 	for msg := range i.send {
 		completed := CompletedKey{
 			PieceKey: msg.key(),
-			failed:   len(msg.block) == 0,
+			ok:       len(msg.block) != 0,
 		}
 		i.done <- completed
 
-		if completed.failed {
+		if !completed.ok {
 			continue
 		}
 

@@ -277,9 +277,10 @@ func (h *TorrentHandler) hasPiece(num int) bool {
 }
 
 func (h *TorrentHandler) sendRequest(msg RequestMessage) bool {
-	if _, ok := h.keys[msg.key()]; ok {
+	if _, ok := h.keys[msg.key()]; ok || !h.peer.hasPiece(msg.index) {
 		return false
 	}
+
 	select {
 	case h.recv <- msg:
 		h.keys[msg.key()] = struct{}{}
@@ -425,11 +426,13 @@ func (h *TorrentHandlers) close() {
 func (h *TorrentHandlers) sendRequest(msg RequestMessage) {
 	for range 3 {
 		for _, peer := range h.peers {
-			if peer.hasPiece(msg.index) && peer.sendRequest(msg) {
+			if peer.sendRequest(msg) {
 				return
 			}
 		}
 
-		time.Sleep(defaultSendRetryTime)
+		time.Sleep(defaultReadTimeout)
 	}
+
+	panic("failed to send request")
 }
