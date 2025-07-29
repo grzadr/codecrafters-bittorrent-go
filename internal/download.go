@@ -259,7 +259,7 @@ func newTorrentIndexEmpty(
 		pieces: make([]*TorrentPiece, len(info.pieces)),
 		// send:   make(chan *PieceMessage, 1),
 		send: send,
-		wait: &sync.WaitGroup,
+		wait: &sync.WaitGroup{},
 		// completed: make([]PieceKey, 0, numBlocks),
 	}
 
