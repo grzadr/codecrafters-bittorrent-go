@@ -1,6 +1,8 @@
 package internal
 
 import (
+	"encoding/hex"
+	"iter"
 	"log"
 	"time"
 )
@@ -11,6 +13,7 @@ const (
 	// 	defaultTickInterval   = 100 * time.Millisecond
 	defaultHandlerChanSize = 5
 	defaultSendRetryTime   = 50 * time.Millisecond
+	defaultReadTimeout     = 500 * time.Millisecond
 	defaultRequestBuffer   = 128
 )
 
@@ -253,6 +256,7 @@ type TorrentHandler struct {
 	recv chan RequestMessage
 	send chan PieceMessage
 	done chan struct{}
+	keys map[PieceKey]struct{}
 }
 
 func newTorrentHandler(
@@ -264,6 +268,7 @@ func newTorrentHandler(
 		recv: make(chan RequestMessage, defaultHandlerChanSize),
 		send: send,
 		done: make(chan struct{}, 1),
+		keys: make(map[PieceKey]struct{}),
 	}
 }
 
@@ -272,8 +277,13 @@ func (h *TorrentHandler) hasPiece(num int) bool {
 }
 
 func (h *TorrentHandler) sendRequest(msg RequestMessage) bool {
+	if _, ok := h.keys[msg.key()]; ok {
+		return false
+	}
 	select {
 	case h.recv <- msg:
+		h.keys[msg.key()] = struct{}{}
+
 		return true
 	default:
 		return false
@@ -284,33 +294,85 @@ func (h *TorrentHandler) finalize() {
 	h.done <- struct{}{}
 }
 
-func (h *TorrentHandler) exec() {
+func (h *TorrentHandler) queueRequest() (keys map[PieceKey]struct{}, buff []byte, n int) {
 	writeBuff := [defaultRequestBuffer]byte{}
+	keys = make(map[PieceKey]struct{}, defaultHandlerChanSize)
+	offset := 0
 
+loop:
+	for range defaultHandlerChanSize {
+		select {
+		case msg := <-h.recv:
+			keys[msg.key()] = struct{}{}
+			offset += copy(writeBuff[offset:], msg.encode())
+			n++
+		case <-time.After(defaultSendRetryTime):
+			break loop
+		case <-h.done:
+			return
+		}
+	}
+
+	buff = writeBuff[:offset]
+
+	return
+}
+
+func (h *TorrentHandler) exec() {
 	for {
-		clear(writeBuff[:])
+		keys, writeBuff, count := h.queueRequest()
 
-		count := 0
-		offset := 0
-
-		for range 5 {
-			select {
-			case msg := <-h.recv:
-				offset += copy(writeBuff[offset:], msg.encode())
-				count++
-			case <-time.After(defaultSendRetryTime):
-				return
-			case <-h.done:
-				return
-			}
+		if count == 0 {
+			time.After(defaultSendRetryTime)
 		}
 
 		log.Printf("sending %d messages", count)
-		h.peer.write(writeBuff[:offset])
 
-		for msg := range NewMessage(h.peer.reader) {
-			h.send <- NewPiecePayload(msg.content)
+		h.peer.write(writeBuff)
+
+		next, stop := iter.Pull(NewMessage(h.peer.reader))
+
+		h.peer.setTimeout(defaultReadTimeout)
+
+		for count > 0 {
+			msg, ok := next()
+			if !ok {
+				break
+			}
+
+			if msg.Err != nil || msg.Type != Piece {
+				break
+			}
+
+			log.Printf(
+				"%s %s:\n",
+				h.peer.addr,
+				msg.Type,
+			)
+
+			log.Println(hex.Dump(msg.content[:16]))
+
+			payload := NewPiecePayload(msg.content)
+
+			delete(keys, payload.key())
+
+			h.send <- payload
+
+			count--
 		}
+
+		h.peer.resetTimeout()
+
+		for key := range keys {
+			h.send <- PieceMessage{index: key.index, begin: key.begin, block: []byte{}}
+		}
+
+		// for msg := range  {
+		// 	log.Printf("%s: %s", h.peer.addr, hex.Dump(msg.content[:20]))
+		// 	h.send <- NewPiecePayload(msg.content)
+		// }
+
+		stop()
 	}
 }
 

@@ -114,8 +114,7 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 			msg := Message{}
 
 			if _, msg.Err = io.ReadFull(reader, sizeBuf); msg.Err == io.EOF {
-				log.Println("EOF:", hex.Dump(sizeBuf))
-
+				// log.Println("EOF:", hex.Dump(sizeBuf))
 				return
 			} else if msg.Err != nil {
 				msg.Err = fmt.Errorf("error reading length: %w", msg.Err)
@@ -200,13 +199,11 @@ type PieceMessage struct {
 }
 
 func NewPiecePayload(data []byte) (piece PieceMessage) {
-	log.Println("NewPiecePayload\n", hex.Dump(data[:16]))
+	// log.Println("NewPiecePayload\n", hex.Dump(data[:16]))
 	// msg, _ := NewMessage(data)
-
 	// if msg.msgType != Piece {
 	// 	panic(fmt.Sprintf("expected %q, got %q", Piece, msg.msgType))
 	// }
-
 	piece.index = bytesToInt(data[:int32Size])
 	piece.begin = bytesToInt(data[int32Size : int32Size*2])
 	piece.block = data[int32Size*2:]

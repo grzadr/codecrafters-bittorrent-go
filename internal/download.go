@@ -8,7 +8,6 @@ import (
 	"iter"
 	"log"
 	"os"
-	"sync"
 )
 
 const (
@@ -248,13 +247,24 @@ type TorrentIndex struct {
 	// requests Queue[RequestMessage]
 	checksum Hash
 	// length int
-	requests []RequestMessage
+	requests map[PieceKey]RequestMessage
 	keys     map[PieceKey]*TorrentPiece
 	pieces   []*TorrentPiece
 	send     chan PieceMessage
-	wg       *sync.WaitGroup
+	done     chan CompletedKey
+	// wg       *sync.WaitGroup
+	finish chan struct{}
 	// failed []RequestMessage
 	// done   chan PieceKey
+}
+
+type CompletedKey struct {
+	PieceKey
+	failed bool
+}
+
+func (k CompletedKey) key() PieceKey {
+	return k.PieceKey
 }
 
 func newTorrentIndexEmpty(
@@ -264,15 +274,16 @@ func newTorrentIndexEmpty(
 	// numBlocks := info.length/defaultBlockSize + 1
 	index = &TorrentIndex{
 		requests: make(
-			[]RequestMessage,
-			0,
+			map[PieceKey]RequestMessage,
 			ceilDiv(info.length, defaultBlockSize),
 		),
 		pieces: make([]*TorrentPiece, len(info.pieces)),
 		// send:   make(chan *PieceMessage, 1),
 		send: send,
-		wg:   &sync.WaitGroup{},
-		keys: make(map[PieceKey]*TorrentPiece),
+		// wg:     &sync.WaitGroup{},
+		keys:   make(map[PieceKey]*TorrentPiece),
+		done:   make(chan CompletedKey),
+		finish: make(chan struct{}),
 		// completed: make([]PieceKey, 0, numBlocks),
 	}
 
@@ -290,7 +301,7 @@ func newTorrentIndex(info *TorrentInfo,
 		index.pieces = append(index.pieces, piece)
 
 		for msg := range iter {
-			index.requests = append(index.requests, msg)
+			index.requests[msg.key()] = msg
 			index.keys[msg.key()] = piece
 		}
 	}
@@ -309,27 +320,68 @@ func newTorrentIndexSingle(
 	index.pieces = append(index.pieces, piece)
 
 	for msg := range iter {
-		index.requests = append(index.requests, msg)
+		index.requests[msg.key()] = msg
 		index.keys[msg.key()] = piece
 	}
 
 	return
 }
 
-func (i *TorrentIndex) exec() {
-	for msg := range i.send {
-		piece := i.keys[msg.key()]
-		copy(piece.block[msg.begin:], piece.block)
-		i.wg.Done()
+func (i *TorrentIndex) request(handlers TorrentHandlers) {
+	defer i.close()
+
+	// var wg sync.WaitGroup
+
+	for len(i.requests) > 0 {
+		for i, msg := range i.requests {
+			handlers.sendRequest(msg)
+			log.Printf("sent request %d: %+v", i, msg)
+			// wg.Add(1)
+		}
+
+		// wait:
+		for range len(i.requests) {
+			key := <-i.done
+			if key.failed {
+				delete(i.requests, key.key())
+			}
+		}
 	}
 }
 
-func (i *TorrentIndex) add(n int) {
-	i.wg.Add(n)
+func (i *TorrentIndex) collect() {
+	counter := 0
+
+	for msg := range i.send {
+		completed := CompletedKey{
+			PieceKey: msg.key(),
+			failed:   len(msg.block) == 0,
+		}
+		i.done <- completed
+
+		if completed.failed {
+			continue
+		}
+
+		piece := i.keys[msg.key()]
+		copy(piece.block[msg.begin:], piece.block)
+		// i.wg.Done()
+
+		counter++
+		log.Printf("received %d", counter)
+	}
+}
+
+func (i *TorrentIndex) close() {
+	// close(i.send)
+	close(i.done)
+	close(i.finish)
 }
 
 func (i *TorrentIndex) wait() {
-	i.wg.Wait()
+	// defer i.close()
+	// i.wg.Wait()
+	<-i.finish
 }
 
 func downloadPiece(
@@ -338,15 +390,20 @@ func downloadPiece(
 	handlers TorrentHandlers,
 ) []byte {
 	index := newTorrentIndexSingle(num, info, handlers.send)
-	index.add(len(index.requests))
+	// index.add(len(index.requests))
 
-	go index.exec()
+	log.Printf("added %d requests\n", len(index.requests))
 
-	for _, msg := range index.requests {
-		handlers.sendRequest(msg)
-	}
+	go index.collect()
+	go index.request(handlers)
+
+	log.Println("waiting")
 
 	index.wait()
+
+	log.Println("wait complete")
+
+	log.Println(index.pieces)
 
 	piece := index.pieces[0]
 	piece.verify()
