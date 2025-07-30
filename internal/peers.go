@@ -315,7 +315,7 @@ func (peer *TorrentPeer) hasPiece(num int) bool {
 	pos := num / byteSize
 	shift := byteSize - (num % byteSize) - 1
 
-	log.Printf("%08b pos: %d shift %d\n", peer.owned, pos, shift)
+	// log.Printf("%08b pos: %d shift %d\n", peer.owned, pos, shift)
 
 	return 0x01&(peer.owned[pos]>>shift) == 1
 }

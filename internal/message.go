@@ -114,8 +114,7 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 			msg := Message{}
 
 			if _, msg.Err = io.ReadFull(reader, sizeBuf); msg.Err == io.EOF {
-				log.Println("EOF:", hex.Dump(sizeBuf))
-
+				// log.Println("EOF:", hex.Dump(sizeBuf))
 				return
 			} else if msg.Err != nil {
 				msg.Err = fmt.Errorf("error reading length: %w", msg.Err)
@@ -133,12 +132,6 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 			}
 
 			length := bytesToInt(sizeBuf)
-
-			// if length == 0 {
-			// 	panic("length 0")
-
-			// 	// continue
-			// }
 
 			msg.Size = length - 1
 

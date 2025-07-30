@@ -3,6 +3,7 @@ package internal
 import (
 	"bytes"
 	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"iter"
@@ -14,12 +15,6 @@ const (
 	defaultFileMode  = 0o644
 	defaultBlockSize = 16 * 1024
 )
-
-// type PieceSpec struct {
-// 	index int
-// 	begin int
-// 	block int
-// }
 
 func ceilDiv(a, b int) int {
 	return (a + b - 1) / b
@@ -48,7 +43,7 @@ func IterRequestMessage(index, size, blockSize int) iter.Seq[RequestMessage] {
 		yield(
 			RequestMessage{
 				index: index,
-				begin: numBlocks * blockSize,
+				begin: (numBlocks - 1) * blockSize,
 				block: chunkSize(size, blockSize),
 			},
 		)
@@ -93,51 +88,6 @@ func Zip[A, B any](a iter.Seq[A], b iter.Seq[B]) iter.Seq2[A, B] {
 	}
 }
 
-// func IterRequestMsg(index, size, chunk int) iter.Seq[PieceSpec] {
-// 	return func(yield func(PieceSpec) bool) {
-// 		log.Printf("piece: %d %d %d", index, size, chunk)
-
-// 		for spec := range IterRequestMessage(index, size, chunk) {
-// 			log.Printf("spec: %+v\n", spec)
-
-// 			if !yield(spec) {
-// 				return
-// 			}
-// 		}
-// 	}
-// }
-
-// func receivePiece(
-// 	recv <-chan TorrentResponse,
-// 	wg *sync.WaitGroup,
-// 	piece *[]byte,
-// ) {
-// 	for resp := range recv {
-// 		if resp.done {
-// 			log.Println("receiver is done")
-
-// 			return
-// 		}
-
-// 		if resp.Err != nil {
-// 			panic(resp.Err)
-// 		}
-
-// 		if len(resp.Resp) != 0 {
-// 			msg := NewPiecePayload(resp.Resp)
-
-// 			log.Printf("copy %d %d\n", msg.index, msg.begin)
-
-// 			copy((*piece)[msg.begin:], msg.block)
-// 		} else {
-// 			log.Println("zero message")
-// 			// continue
-// 		}
-
-// 		wg.Done()
-// 	}
-// }
-
 type Queue[T any] struct {
 	items []T
 }
@@ -159,8 +109,7 @@ func (q *Queue[T]) Dequeue() (item T, ok bool) {
 }
 
 type PieceBlock struct {
-	checksum Hash
-	// size      int
+	checksum  Hash
 	numBlocks int
 	block     []byte
 }
@@ -185,33 +134,9 @@ type PieceKey struct {
 	begin int
 }
 
-// func IterPieceKeys(index, size, blockSize int) iter.Seq2[PieceKey, int] {
-// 	return func(yield func(PieceKey, int) bool) {
-// 		numBlocks := ceilDiv(size, blockSize)
-
-// 		for num := range numBlocks - 1 {
-// 			if !yield(
-// 				PieceKey{index: index, begin: num * blockSize}, block,
-// 			) {
-// 				return
-// 			}
-// 		}
-
-// 		yield(
-// 			PieceKey{
-// 				index: index,
-// 				begin: num * blockSize,
-// 			},
-// 			chunkSize(size, block),
-// 		)
-// 	}
-// }
-
 type TorrentPiece struct {
 	checksum Hash
-	// size      int
-	// numBlocks int
-	block []byte
+	block    []byte
 }
 
 func NewTorrentPiece(
@@ -244,18 +169,13 @@ func (p TorrentPiece) verify() {
 }
 
 type TorrentIndex struct {
-	// requests Queue[RequestMessage]
 	checksum Hash
-	// length int
 	requests map[PieceKey]RequestMessage
 	keys     map[PieceKey]*TorrentPiece
 	pieces   []*TorrentPiece
 	send     chan PieceMessage
 	done     chan CompletedKey
-	// wg       *sync.WaitGroup
-	finish chan struct{}
-	// failed []RequestMessage
-	// done   chan PieceKey
+	finish   chan struct{}
 }
 
 type CompletedKey struct {
@@ -272,20 +192,16 @@ func newTorrentIndexEmpty(
 	info *TorrentInfo,
 	send chan PieceMessage,
 ) (index *TorrentIndex) {
-	// numBlocks := info.length/defaultBlockSize + 1
 	index = &TorrentIndex{
 		requests: make(
 			map[PieceKey]RequestMessage,
 			ceilDiv(info.length, defaultBlockSize),
 		),
-		pieces: make([]*TorrentPiece, len(info.pieces)),
-		// send:   make(chan *PieceMessage, 1),
-		send: send,
-		// wg:     &sync.WaitGroup{},
+		pieces: make([]*TorrentPiece, 0, len(info.pieces)),
+		send:   send,
 		keys:   make(map[PieceKey]*TorrentPiece),
 		done:   make(chan CompletedKey),
 		finish: make(chan struct{}),
-		// completed: make([]PieceKey, 0, numBlocks),
 	}
 
 	return
@@ -318,6 +234,8 @@ func newTorrentIndexSingle(
 	index = newTorrentIndexEmpty(info, send)
 	piece, iter := NewTorrentPiece(num, info)
 
+	log.Printf("added %d piece of size %d", num, len(piece.block))
+
 	index.pieces = append(index.pieces, piece)
 
 	for msg := range iter {
@@ -331,16 +249,17 @@ func newTorrentIndexSingle(
 func (i *TorrentIndex) request(handlers TorrentHandlers) {
 	defer i.close()
 
-	// var wg sync.WaitGroup
-
 	for len(i.requests) > 0 {
 		for i, msg := range i.requests {
 			handlers.sendRequest(msg)
-			log.Printf("sent request %d: %+v", i, msg)
-			// wg.Add(1)
+			log.Printf(
+				"sent request %d: %+v\n%s\n",
+				i,
+				msg,
+				hex.Dump(msg.encode()),
+			)
 		}
 
-		// wait:
 		count := 0
 
 		for range len(i.requests) {
@@ -377,7 +296,6 @@ func (i *TorrentIndex) collect() {
 
 		piece := i.keys[msg.key()]
 		copy(piece.block[msg.begin:], msg.block)
-		// i.wg.Done()
 
 		counter++
 		log.Printf("received %d", counter)
@@ -385,14 +303,11 @@ func (i *TorrentIndex) collect() {
 }
 
 func (i *TorrentIndex) close() {
-	// close(i.send)
 	close(i.done)
 	close(i.finish)
 }
 
 func (i *TorrentIndex) wait() {
-	// defer i.close()
-	// i.wg.Wait()
 	<-i.finish
 }
 
@@ -402,7 +317,6 @@ func downloadPiece(
 	handlers TorrentHandlers,
 ) []byte {
 	index := newTorrentIndexSingle(num, info, handlers.send)
-	// index.add(len(index.requests))
 
 	log.Printf("added %d requests\n", len(index.requests))
 
@@ -419,41 +333,6 @@ func downloadPiece(
 
 	piece := index.pieces[0]
 	piece.verify()
-
-	// peerPools := peers.withPiece(index)
-	// log.Printf("number of peer pools: %d", len(peerPools))
-	// handler := NewTorrentRequestHandler(defaultQueueSize)
-	// defer handler.Close()
-	// responses := make([]PiecePayload, 0, chunks)
-	// var wg sync.WaitGroup
-
-	// // iter :=
-
-	// i := 0
-
-	// picked := peers.pick(index)
-	// pickedLen := len(picked)
-
-	// for msg := range IterRequestMessage(index, length, defaultBufferSize) {
-	// 	wg.Add(1)
-
-	// 	shift := i % pickedLen
-
-	// 	handler.send <- TorrentRequest{
-	// 		Peers: append(picked[shift:], picked[:shift]...),
-	// 		Msg:   msg,
-	// 	}
-
-	// 	i++
-	// }
-
-	// go receivePiece(handler.recv, &wg, &piece)
-
-	// log.Printf("waiting for %d\n", i)
-
-	// wg.Wait()
-
-	// log.Println("returning piece")
 
 	return piece.block
 }

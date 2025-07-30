@@ -327,7 +327,7 @@ func (h *TorrentHandler) exec() {
 			time.After(defaultSendRetryTime)
 		}
 
-		log.Printf("sending %d messages", count)
+		// log.Printf("sending %d messages", count)
 
 		h.peer.write(writeBuff)
 
