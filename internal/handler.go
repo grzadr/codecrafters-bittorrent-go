@@ -13,7 +13,7 @@ const (
 	// 	defaultTickInterval   = 100 * time.Millisecond
 	defaultHandlerChanSize = 5
 	defaultSendRetryTime   = 50 * time.Millisecond
-	defaultReadTimeout     = 500 * time.Millisecond
+	defaultReadTimeout     = 1000 * time.Millisecond
 	defaultRequestBuffer   = 128
 )
 
