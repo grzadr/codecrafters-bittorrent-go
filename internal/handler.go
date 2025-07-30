@@ -287,6 +287,10 @@ func (h *TorrentHandler) sendRequest(msg RequestMessage) bool {
 	}
 }
 
+func (h *TorrentHandler) addr() string {
+	return h.peer.addr.String()
+}
+
 func (h *TorrentHandler) finalize() {
 	h.done <- struct{}{}
 }
@@ -339,6 +343,7 @@ func (h *TorrentHandler) exec() {
 
 			if msg.Err != nil {
 				// panic(msg.Err)
+				log.Println(msg.Err)
 				h.peer.reconnect()
 				clear(h.keys)
 
@@ -390,8 +395,9 @@ func (h *TorrentHandler) close() {
 }
 
 type TorrentHandlers struct {
-	peers []*TorrentHandler
-	send  chan PieceMessage
+	peers  []*TorrentHandler
+	send   chan PieceMessage
+	failed map[PieceKey]map[string]struct{}
 }
 
 func newTorrentHandlers(

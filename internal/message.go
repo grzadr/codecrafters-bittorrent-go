@@ -114,17 +114,15 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 			msg := Message{}
 
 			if _, msg.Err = io.ReadFull(reader, sizeBuf); msg.Err == io.EOF {
-				// log.Println("EOF:", hex.Dump(sizeBuf))
+				log.Println("EOF:", hex.Dump(sizeBuf))
+
 				return
 			} else if msg.Err != nil {
 				msg.Err = fmt.Errorf("error reading length: %w", msg.Err)
-
 				yield(msg)
 
 				return
 			}
-
-			log.Println(hex.Dump(sizeBuf))
 
 			if bytes.Equal(sizeBuf, []byte(handshakePrefix)) {
 				if !yield(NewHandshakeMessage(reader)) {
@@ -136,9 +134,11 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 
 			length := bytesToInt(sizeBuf)
 
-			if length == 0 {
-				continue
-			}
+			// if length == 0 {
+			// 	panic("length 0")
+
+			// 	// continue
+			// }
 
 			msg.Size = length - 1
 
@@ -155,9 +155,16 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 
 			msg.content = make([]byte, msg.Size)
 
-			_, err = io.ReadFull(reader, msg.content)
-			if err != nil {
+			if n, err := io.ReadFull(reader, msg.content); err != nil {
 				msg.Err = fmt.Errorf("failed to read %d bytes: %w", length, err)
+				yield(msg)
+
+				return
+			} else if n != msg.Size {
+				msg.Err = fmt.Errorf("failed to read %d bytes: read only %d bytes", length, n)
+				yield(msg)
+
+				return
 			}
 
 			// msg.content = contentBuf[:n]

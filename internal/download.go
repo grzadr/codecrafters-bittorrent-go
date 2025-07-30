@@ -260,7 +260,8 @@ type TorrentIndex struct {
 
 type CompletedKey struct {
 	PieceKey
-	ok bool
+	ok   bool
+	addr string
 }
 
 func (k CompletedKey) key() PieceKey {
@@ -356,6 +357,8 @@ func (i *TorrentIndex) request(handlers TorrentHandlers) {
 
 		log.Printf("completed %d requests", count)
 	}
+
+	i.finish <- struct{}{}
 }
 
 func (i *TorrentIndex) collect() {
@@ -456,6 +459,8 @@ func downloadPiece(
 }
 
 func CmdDownloadPiece(downloadPath, torrentPath string, index int) {
+	log.Printf("downloading piece %d", index)
+
 	info := ParseTorrentFile(torrentPath)
 
 	handlers, err := newTorrentHandlers(info)
