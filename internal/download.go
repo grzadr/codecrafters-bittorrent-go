@@ -3,7 +3,6 @@ package internal
 import (
 	"bytes"
 	"crypto/sha1"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"iter"
@@ -221,6 +220,8 @@ func newTorrentIndex(info *TorrentInfo,
 			index.requests[msg.key()] = msg
 			index.keys[msg.key()] = piece
 		}
+
+		log.Printf("added %d piece of size %d", num, len(piece.block))
 	}
 
 	return
@@ -250,14 +251,8 @@ func (i *TorrentIndex) request(handlers TorrentHandlers) {
 	defer i.close()
 
 	for len(i.requests) > 0 {
-		for i, msg := range i.requests {
+		for _, msg := range i.requests {
 			handlers.sendRequest(msg)
-			log.Printf(
-				"sent request %d: %+v\n%s\n",
-				i,
-				msg,
-				hex.Dump(msg.encode()),
-			)
 		}
 
 		count := 0
@@ -308,7 +303,9 @@ func (i *TorrentIndex) close() {
 }
 
 func (i *TorrentIndex) wait() {
+	log.Println("waiting")
 	<-i.finish
+	log.Println("finished")
 }
 
 func downloadPiece(
@@ -364,5 +361,53 @@ func CmdDownloadPiece(downloadPath, torrentPath string, index int) {
 	log.Println("file saved")
 }
 
+func downloadFile(
+	info *TorrentInfo,
+	handlers TorrentHandlers,
+) []byte {
+	log.Printf("downloading %d bytes\n", info.length)
+	index := newTorrentIndex(info, handlers.send)
+
+	log.Printf("added %d requests\n", len(index.requests))
+
+	go index.collect()
+	go index.request(handlers)
+
+	index.wait()
+
+	log.Println(index.pieces)
+
+	buffer := make([]byte, info.length)
+	offset := 0
+
+	for _, piece := range index.pieces {
+		piece.verify()
+		offset += copy(buffer[offset:], piece.block)
+	}
+
+	return buffer
+}
+
 func CmdDownload(downloadPath, torrentPath string) {
+	info := ParseTorrentFile(torrentPath)
+
+	handlers, err := newTorrentHandlers(info)
+	if err != nil {
+		panic(err)
+	}
+
+	defer handlers.close()
+	handlers.exec()
+
+	piece := downloadFile(info, handlers)
+
+	if err := os.WriteFile(downloadPath, piece, defaultFileMode); err != nil {
+		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
+	}
+
+	if _, err := os.Stat(downloadPath); errors.Is(err, os.ErrNotExist) {
+		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
+	}
+
+	log.Println("file saved")
 }

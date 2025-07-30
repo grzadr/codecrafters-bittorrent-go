@@ -208,6 +208,8 @@ func NewPiecePayload(data []byte) (piece PieceMessage) {
 	piece.begin = bytesToInt(data[int32Size : int32Size*2])
 	piece.block = data[int32Size*2:]
 
+	log.Println("piece:", piece.index, piece.begin, len(piece.block))
+
 	return
 }
 

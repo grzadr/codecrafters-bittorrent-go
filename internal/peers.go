@@ -300,6 +300,8 @@ func (peer *TorrentPeer) handshake(
 
 	peer.owned = response.content
 
+	log.Printf("%08b", peer.owned)
+
 	err := peer.interested()
 
 	return err
