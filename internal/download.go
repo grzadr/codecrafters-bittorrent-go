@@ -373,7 +373,7 @@ func (i *TorrentIndex) collect() {
 		}
 
 		piece := i.keys[msg.key()]
-		copy(piece.block[msg.begin:], piece.block)
+		copy(piece.block[msg.begin:], msg.block)
 		// i.wg.Done()
 
 		counter++

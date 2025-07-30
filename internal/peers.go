@@ -154,11 +154,12 @@ func (req DiscoverRequest) peers() (p []*net.TCPAddr) {
 }
 
 type TorrentPeer struct {
-	id     string
-	owned  []byte
-	conn   *net.TCPConn
-	addr   *net.TCPAddr
-	reader *bufio.Reader
+	id      string
+	request []byte
+	owned   []byte
+	conn    *net.TCPConn
+	addr    *net.TCPAddr
+	reader  *bufio.Reader
 }
 
 func NewTorrentPeer(
@@ -166,11 +167,18 @@ func NewTorrentPeer(
 	handshake []byte,
 ) (peer *TorrentPeer, err error) {
 	peer = &TorrentPeer{
-		addr: addr,
+		addr:    addr,
+		request: handshake,
 	}
 
+	err = peer.connect()
+
+	return peer, err
+}
+
+func (peer *TorrentPeer) connect() error {
 	if err := peer.dial(); err != nil {
-		return peer, fmt.Errorf(
+		return fmt.Errorf(
 			"failed to establish connection with %q: %w",
 			peer.addr,
 			err,
@@ -179,13 +187,19 @@ func NewTorrentPeer(
 
 	log.Println("conn established")
 
-	if err = peer.handshake(handshake); err != nil {
-		return peer, fmt.Errorf("error during handshake: %w", err)
+	if err := peer.handshake(peer.request); err != nil {
+		return fmt.Errorf("error during handshake: %w", err)
 	}
 
 	log.Println("handshake performed")
 
-	return peer, err
+	return nil
+}
+
+func (peer *TorrentPeer) reconnect() error {
+	peer.close()
+
+	return peer.connect()
 }
 
 func (peer *TorrentPeer) write(msg []byte) error {

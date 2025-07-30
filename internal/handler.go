@@ -272,10 +272,6 @@ func newTorrentHandler(
 	}
 }
 
-func (h *TorrentHandler) hasPiece(num int) bool {
-	return h.peer.hasPiece(num)
-}
-
 func (h *TorrentHandler) sendRequest(msg RequestMessage) bool {
 	if _, ok := h.keys[msg.key()]; ok || !h.peer.hasPiece(msg.index) {
 		return false
@@ -341,8 +337,18 @@ func (h *TorrentHandler) exec() {
 				break
 			}
 
-			if msg.Err != nil || msg.Type != Piece {
+			if msg.Err != nil {
+				// panic(msg.Err)
+				h.peer.reconnect()
+				clear(h.keys)
+
 				break
+			}
+
+			if msg.Type != Piece {
+				log.Println(msg)
+				panic("")
+				// continue
 			}
 
 			log.Printf(
