@@ -336,9 +336,11 @@ func (peer *TorrentPeer) resetTimeout() {
 	peer.conn.SetReadDeadline(time.Time{})
 }
 
-func allTorrentPeers(info *TorrentInfo) (peers []*TorrentPeer, err error) {
+type TorrentPeerPool []*TorrentPeer
+
+func newTorrentPeerPool(info *TorrentInfo) (peers TorrentPeerPool, err error) {
 	addresses := NewDiscoverRequest(info).peers()
-	peers = make([]*TorrentPeer, len(addresses))
+	peers = make(TorrentPeerPool, len(addresses))
 	handshake := NewHandshakeRequest(info.hash)
 
 	for i, addr := range addresses {
@@ -348,6 +350,12 @@ func allTorrentPeers(info *TorrentInfo) (peers []*TorrentPeer, err error) {
 	}
 
 	return
+}
+
+func (pool *TorrentPeerPool) close() {
+	for _, peer := range *pool {
+		peer.close()
+	}
 }
 
 func CmdHandshake(path, ip string) (id string) {

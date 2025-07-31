@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"fmt"
 	"iter"
 	"log"
 	"time"
@@ -12,6 +13,37 @@ const (
 	defaultReadTimeout     = 2000 * time.Millisecond
 	defaultRequestBuffer   = 128
 )
+
+type TorrentManager struct {
+	peers TorrentPeerPool
+	recv  chan *TorrentPiece
+	send  chan PieceMessage
+	available chan *TorrentPeer
+}
+
+func newTorrentManager(info *TorrentInfo) (mng *TorrentManager, err error) {
+	mng = &TorrentManager{}
+
+	if mng.peers, err = newTorrentPeerPool(info); err != nil {
+		err = fmt.Errorf("failed to connect with peers: %w")
+
+		return
+	}
+
+	mng.recv = make(chan *TorrentPiece, len(mng.peers))
+	mng.send = make(chan PieceMessage, 1)
+	mng.available = make(chan *TorrentPeer, len(mng.peers))
+
+	return
+}
+
+func (mng *TorrentManager) close() {
+	mng.peers.close()
+	close(mng.recv)
+	close(mng.send)
+}
+
+func (p *TorrentManager) receive
 
 type TorrentHandler struct {
 	peer *TorrentPeer
@@ -154,7 +186,7 @@ type TorrentHandlers struct {
 func newTorrentHandlers(
 	info *TorrentInfo,
 ) (handlers TorrentHandlers, err error) {
-	peers, err := allTorrentPeers(info)
+	peers, err := newTorrentPeerPool(info)
 	if err != nil {
 		return
 	}

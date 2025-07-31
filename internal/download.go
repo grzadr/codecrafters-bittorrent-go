@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"log"
+	"net"
 	"os"
 )
 
@@ -134,14 +135,16 @@ type PieceKey struct {
 }
 
 type TorrentPiece struct {
-	checksum Hash
-	block    []byte
+	index        int
+	checksum     Hash
+	block        []byte
+	visitedPeers []*net.TCPAddr
 }
 
 func NewTorrentPiece(
 	index int,
 	info *TorrentInfo,
-) (piece *TorrentPiece, keys iter.Seq[RequestMessage]) {
+) *TorrentPiece {
 	size := info.pieceLength
 
 	// last piece is either full pieceLength or remainder
@@ -149,105 +152,144 @@ func NewTorrentPiece(
 		size = chunkSize(info.length, size)
 	}
 
-	piece = &TorrentPiece{
-		checksum: info.pieces[index],
-		block:    make([]byte, size),
+	// piece =
+
+	// keys = IterRequestMessage(index, size, defaultBlockSize)
+
+	return &TorrentPiece{
+		index:        index,
+		checksum:     info.pieces[index],
+		block:        make([]byte, size),
+		visitedPeers: make([]*net.TCPAddr, 0),
 	}
-
-	keys = IterRequestMessage(index, size, defaultBlockSize)
-
-	return
 }
 
-func (p TorrentPiece) verify() {
+func (p *TorrentPiece) isCorrect() bool {
 	hash := sha1.Sum(p.block)
-	//
-	if !bytes.Equal(hash[:], p.checksum[:]) {
-		panic("piece hash differ")
-	}
+
+	return bytes.Equal(hash[:], p.checksum[:])
 }
 
-type TorrentIndex struct {
-	checksum Hash
-	requests map[PieceKey]RequestMessage
-	keys     map[PieceKey]*TorrentPiece
-	pieces   []*TorrentPiece
-	send     chan PieceMessage
-	done     chan CompletedKey
-	finish   chan struct{}
+func (p *TorrentPiece) insert(msg PieceMessage) {
+	copy(p.block[msg.begin:], msg.block)
 }
 
-type CompletedKey struct {
-	PieceKey
-	ok   bool
-	addr string
+func (p *TorrentPiece) reset() {
+	clear(p.block)
 }
 
-func (k CompletedKey) key() PieceKey {
-	return k.PieceKey
-}
-
-func newTorrentIndexEmpty(
-	info *TorrentInfo,
-	send chan PieceMessage,
-) (index *TorrentIndex) {
-	index = &TorrentIndex{
-		requests: make(
-			map[PieceKey]RequestMessage,
-			ceilDiv(info.length, defaultBlockSize),
-		),
-		pieces: make([]*TorrentPiece, 0, len(info.pieces)),
-		send:   send,
-		keys:   make(map[PieceKey]*TorrentPiece),
-		done:   make(chan CompletedKey),
-		finish: make(chan struct{}),
-	}
-
-	return
-}
-
-func newTorrentIndex(info *TorrentInfo,
-	send chan PieceMessage,
-) (index *TorrentIndex) {
-	index = newTorrentIndexEmpty(info, send)
-
-	for num := range len(info.pieces) {
-		piece, iter := NewTorrentPiece(num, info)
-
-		index.pieces = append(index.pieces, piece)
-
-		for msg := range iter {
-			index.requests[msg.key()] = msg
-			index.keys[msg.key()] = piece
+func (p *TorrentPiece) checkPeer(addr *net.TCPAddr) bool {
+	for _, visited := range p.visitedPeers {
+		if visited.IP.Equal(addr.IP) && visited.Port == addr.Port {
+			return true
 		}
+	}
 
-		log.Printf("added %d piece of size %d", num, len(piece.block))
+	return false
+}
+
+func (p *TorrentPiece) addPeer(addr *net.TCPAddr) {
+	p.visitedPeers = append(p.visitedPeers, addr)
+}
+
+func (p *TorrentPiece) iterRequestMessages() iter.Seq[RequestMessage] {
+	return IterRequestMessage(p.index, len(p.block), defaultBlockSize)
+}
+
+// func (p *TorrentPiece)
+
+type TorrentFile struct {
+	// checksum Hash
+	// requests map[PieceKey]RequestMessage
+	// keys     map[PieceKey]*TorrentPiece
+	pieces []*TorrentPiece
+	// send     chan PieceMessage
+	// done     chan CompletedKey
+	// finish   chan struct{}
+}
+
+func newTorrentFile(info *TorrentInfo) (file *TorrentFile) {
+	file = &TorrentFile{
+		pieces: make([]*TorrentPiece, len(info.pieces)),
+	}
+	for index := range len(info.pieces) {
+		file.pieces[index] = NewTorrentPiece(index, info)
 	}
 
 	return
 }
 
-func newTorrentIndexSingle(
-	num int,
-	info *TorrentInfo,
-	send chan PieceMessage,
-) (index *TorrentIndex) {
-	index = newTorrentIndexEmpty(info, send)
-	piece, iter := NewTorrentPiece(num, info)
+// type CompletedKey struct {
+// 	PieceKey
+// 	ok   bool
+// 	addr string
+// }
 
-	log.Printf("added %d piece of size %d", num, len(piece.block))
+// func (k CompletedKey) key() PieceKey {
+// 	return k.PieceKey
+// }
 
-	index.pieces = append(index.pieces, piece)
+// func newTorrentIndexEmpty(
+// 	info *TorrentInfo,
+// 	send chan PieceMessage,
+// ) (index *TorrentFile) {
+// 	index = &TorrentFile{
+// 		requests: make(
+// 			map[PieceKey]RequestMessage,
+// 			ceilDiv(info.length, defaultBlockSize),
+// 		),
+// 		pieces: make([]*TorrentPiece, 0, len(info.pieces)),
+// 		send:   send,
+// 		keys:   make(map[PieceKey]*TorrentPiece),
+// 		done:   make(chan CompletedKey),
+// 		finish: make(chan struct{}),
+// 	}
 
-	for msg := range iter {
-		index.requests[msg.key()] = msg
-		index.keys[msg.key()] = piece
-	}
+// 	return
+// }
 
-	return
-}
+// func newTorrentIndex(info *TorrentInfo,
+// 	send chan PieceMessage,
+// ) (index *TorrentFile) {
+// 	index = newTorrentIndexEmpty(info, send)
 
-func (i *TorrentIndex) request(handlers TorrentHandlers) {
+// 	for num := range len(info.pieces) {
+// 		piece := NewTorrentPiece(num, info)
+
+// 		index.pieces = append(index.pieces, piece)
+
+// 		for msg := range iter {
+// 			index.requests[msg.key()] = msg
+// 			index.keys[msg.key()] = piece
+// 		}
+
+// 		log.Printf("added %d piece of size %d", num, len(piece.block))
+// 	}
+
+// 	return
+// }
+
+// func newTorrentIndexSingle(
+// 	num int,
+// 	info *TorrentInfo,
+// 	send chan PieceMessage,
+// ) (index *TorrentFile) {
+// 	index = newTorrentIndexEmpty(info, send)
+// 	piece, iter := NewTorrentPiece(num, info)
+
+// 	log.Printf("added %d piece of size %d", num, len(piece.block))
+
+// 	index.pieces = append(index.pieces, piece)
+
+// 	for msg := range iter {
+// 		index.requests[msg.key()] = msg
+// 		index.keys[msg.key()] = piece
+// 	}
+
+// 	return
+// }
+
+func (i *TorrentFile) request(handlers TorrentHandlers) {
 	defer i.close()
 
 	for len(i.requests) > 0 {
@@ -275,7 +317,7 @@ func (i *TorrentIndex) request(handlers TorrentHandlers) {
 	i.finish <- struct{}{}
 }
 
-func (i *TorrentIndex) collect() {
+func (i *TorrentFile) collect() {
 	counter := 0
 
 	for msg := range i.send {
@@ -297,12 +339,12 @@ func (i *TorrentIndex) collect() {
 	}
 }
 
-func (i *TorrentIndex) close() {
+func (i *TorrentFile) close() {
 	close(i.done)
 	close(i.finish)
 }
 
-func (i *TorrentIndex) wait() {
+func (i *TorrentFile) wait() {
 	log.Println("waiting")
 	<-i.finish
 	log.Println("finished")
@@ -339,13 +381,11 @@ func CmdDownloadPiece(downloadPath, torrentPath string, index int) {
 
 	info := ParseTorrentFile(torrentPath)
 
-	handlers, err := newTorrentHandlers(info)
+	mng, err := newTorrentManager(info)
 	if err != nil {
 		panic(err)
 	}
-
-	defer handlers.close()
-	handlers.exec()
+	defer mng.close()
 
 	piece := downloadPiece(index, info, handlers)
 	log.Printf("writing %d bytes to %q", len(piece), downloadPath)
