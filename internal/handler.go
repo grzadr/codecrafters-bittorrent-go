@@ -15,9 +15,9 @@ const (
 )
 
 type TorrentManager struct {
-	peers TorrentPeerPool
-	recv  chan *TorrentPiece
-	send  chan PieceMessage
+	peers     TorrentPeerPool
+	recv      chan *TorrentPiece
+	send      chan PieceMessage
 	available chan *TorrentPeer
 }
 
@@ -34,6 +34,10 @@ func newTorrentManager(info *TorrentInfo) (mng *TorrentManager, err error) {
 	mng.send = make(chan PieceMessage, 1)
 	mng.available = make(chan *TorrentPeer, len(mng.peers))
 
+	for _, peer := range mng.peers {
+		mng.available <- peer
+	}
+
 	return
 }
 
@@ -41,9 +45,15 @@ func (mng *TorrentManager) close() {
 	mng.peers.close()
 	close(mng.recv)
 	close(mng.send)
+	close(mng.available)
 }
 
-func (p *TorrentManager) receive
+func (mng *TorrentManager) receive() {
+	for piece := range mng.recv {
+		for {
+		}
+	}
+}
 
 type TorrentHandler struct {
 	peer *TorrentPeer
