@@ -17,7 +17,7 @@ const (
 type TorrentManager struct {
 	peers     TorrentPeerPool
 	recv      chan *TorrentPiece
-	send      chan PieceMessage
+	done      chan *TorrentPiece
 	available chan *TorrentPeer
 }
 
@@ -25,13 +25,13 @@ func newTorrentManager(info *TorrentInfo) (mng *TorrentManager, err error) {
 	mng = &TorrentManager{}
 
 	if mng.peers, err = newTorrentPeerPool(info); err != nil {
-		err = fmt.Errorf("failed to connect with peers: %w")
+		err = fmt.Errorf("failed to connect with peers: %w", err)
 
 		return
 	}
 
 	mng.recv = make(chan *TorrentPiece, len(mng.peers))
-	mng.send = make(chan PieceMessage, 1)
+	mng.done = make(chan *TorrentPiece, 1)
 	mng.available = make(chan *TorrentPeer, len(mng.peers))
 
 	for _, peer := range mng.peers {
@@ -44,23 +44,63 @@ func newTorrentManager(info *TorrentInfo) (mng *TorrentManager, err error) {
 func (mng *TorrentManager) close() {
 	mng.peers.close()
 	close(mng.recv)
-	close(mng.send)
+	close(mng.done)
 	close(mng.available)
 }
 
-func (mng *TorrentManager) receive() {
-	for piece := range mng.recv {
-		for {
+func (mng *TorrentManager) download(piece *TorrentPiece, peer *TorrentPeer) {
+	if piece.download(peer) {
+		log.Printf("downloaded piece %d\n", piece.index)
+		mng.done <- piece
+	} else {
+		log.Printf("rescheduling piece %d\n", piece.index)
+		piece.reset()
+		mng.recv <- piece
+	}
+
+	mng.available <- peer
+}
+
+func (mng *TorrentManager) schedule(piece *TorrentPiece) {
+	log.Printf("scheduling piece %d\n", piece.index)
+
+	for {
+		for peer := range mng.available {
+			if piece.visited(peer.addr) {
+				mng.available <- peer
+			}
+
+			log.Printf("picked peer %q for piece %d\n", peer.addr, piece.index)
+
+			go mng.download(piece, peer)
+
+			return
 		}
+
+		time.Sleep(defaultSendRetryTime)
 	}
 }
+
+func (mng *TorrentManager) queue() {
+	for piece := range mng.recv {
+		mng.schedule(piece)
+	}
+}
+
+// func (mng *TorrentManager) schedule() {
+// 	for piece := range mng.recv {
+// 		for {
+
+// 		}
+// 	}
+// }
 
 type TorrentHandler struct {
 	peer *TorrentPeer
 	recv chan RequestMessage
 	send chan PieceMessage
 	done chan struct{}
-	keys map[PieceKey]struct{}
+	keys map[BlockKey]struct{}
 }
 
 func newTorrentHandler(
@@ -72,7 +112,7 @@ func newTorrentHandler(
 		recv: make(chan RequestMessage, defaultHandlerChanSize),
 		send: send,
 		done: make(chan struct{}, 1),
-		keys: make(map[PieceKey]struct{}),
+		keys: make(map[BlockKey]struct{}),
 	}
 }
 
@@ -99,9 +139,9 @@ func (h *TorrentHandler) finalize() {
 	h.done <- struct{}{}
 }
 
-func (h *TorrentHandler) queueRequest() (keys map[PieceKey]struct{}, buff []byte, n int) {
+func (h *TorrentHandler) queueRequest() (keys map[BlockKey]struct{}, buff []byte, n int) {
 	writeBuff := [defaultRequestBuffer]byte{}
-	keys = make(map[PieceKey]struct{}, defaultHandlerChanSize)
+	keys = make(map[BlockKey]struct{}, defaultHandlerChanSize)
 	offset := 0
 
 loop:
@@ -190,7 +230,7 @@ func (h *TorrentHandler) close() {
 type TorrentHandlers struct {
 	peers  []*TorrentHandler
 	send   chan PieceMessage
-	failed map[PieceKey]map[string]struct{}
+	failed map[BlockKey]map[string]struct{}
 }
 
 func newTorrentHandlers(
