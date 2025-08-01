@@ -131,10 +131,6 @@ func (h *TorrentHandler) sendRequest(msg RequestMessage) bool {
 	}
 }
 
-func (h *TorrentHandler) addr() string {
-	return h.peer.addr.String()
-}
-
 func (h *TorrentHandler) finalize() {
 	h.done <- struct{}{}
 }
@@ -225,59 +221,4 @@ func (h *TorrentHandler) close() {
 	h.finalize()
 	h.peer.close()
 	close(h.recv)
-}
-
-type TorrentHandlers struct {
-	peers  []*TorrentHandler
-	send   chan PieceMessage
-	failed map[BlockKey]map[string]struct{}
-}
-
-func newTorrentHandlers(
-	info *TorrentInfo,
-) (handlers TorrentHandlers, err error) {
-	peers, err := newTorrentPeerPool(info)
-	if err != nil {
-		return
-	}
-
-	handlers = TorrentHandlers{
-		peers: make([]*TorrentHandler, len(peers)),
-		send:  make(chan PieceMessage, 1),
-	}
-
-	// handlers = make(TorrentHandlers, len(peers))
-	for i, peer := range peers {
-		handlers.peers[i] = newTorrentHandler(peer, handlers.send)
-	}
-
-	return
-}
-
-func (h *TorrentHandlers) exec() {
-	for _, handler := range h.peers {
-		go handler.exec()
-	}
-}
-
-func (h *TorrentHandlers) close() {
-	for _, handler := range h.peers {
-		handler.close()
-	}
-
-	close(h.send)
-}
-
-func (h *TorrentHandlers) sendRequest(msg RequestMessage) {
-	for range 3 {
-		for _, peer := range h.peers {
-			if peer.sendRequest(msg) {
-				return
-			}
-		}
-
-		time.Sleep(defaultReadTimeout)
-	}
-
-	panic("failed to send request")
 }

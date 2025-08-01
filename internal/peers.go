@@ -313,15 +313,6 @@ func (peer *TorrentPeer) close() {
 	peer.reader = nil
 }
 
-func (peer *TorrentPeer) hasPiece(num int) bool {
-	pos := num / byteSize
-	shift := byteSize - (num % byteSize) - 1
-
-	// log.Printf("%08b pos: %d shift %d\n", peer.owned, pos, shift)
-
-	return 0x01&(peer.owned[pos]>>shift) == 1
-}
-
 func (peer *TorrentPeer) setTimeout(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 
