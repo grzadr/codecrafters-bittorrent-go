@@ -36,6 +36,9 @@ func NewHandshakeRequest(hash Hash) []byte {
 	return message
 }
 
+func NewHandshakeRequestExt(hash Hash) []byte {
+}
+
 func intToBytes(n int, buf []byte) {
 	binary.BigEndian.PutUint32(buf, uint32(n))
 }
