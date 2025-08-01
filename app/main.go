@@ -28,6 +28,8 @@ func main() {
 		internal.CmdDownloadPiece(os.Args[3], os.Args[4], index)
 	case "download":
 		internal.CmdDownload(os.Args[3], os.Args[4])
+	case "magnet_parse":
+		fmt.Println(internal.CmdMagnetParse(os.Args[2]))
 	default:
 		log.Fatalf("Unknown command: %q", command)
 	}

@@ -24,6 +24,12 @@ func decodeTorrentFile(path string) Bencoded {
 
 type Hash [shaHashLength]byte
 
+func newHash(hexStr string) (hash Hash) {
+	decoded, _ := hex.DecodeString(hexStr)
+
+	return Hash(decoded[:shaHashLength])
+}
+
 func (h Hash) String() string {
 	return hex.EncodeToString(h[:])
 }
