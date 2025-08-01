@@ -18,18 +18,24 @@ const (
 	msgLengthBytes     = 4
 	requestFieldsNum   = 3
 	// protocoLength      = 19.
-	protocolName = "\x13BitTorrent protocol"
+	protocolName        = "\x13BitTorrent protocol"
+	magnetExtensionPos  = 5
+	magnetExtensionFlag = 0x10
 	// 	handshakePrefix       = "\x13Bit"
 	// 	handshakePrefixLength = len(handshakePrefix)
-	protocolReservedBytes = 8
+)
+
+var (
+	protocolReservedBytes = [8]byte{}
+	protocolNameBytes     = []byte(protocolName)
 )
 
 func NewHandshakeRequest(hash Hash) []byte {
 	message := make([]byte, handshakeMsgLength)
 	// message[0] = byte(len(prto))
 	offset := 0
-	offset += copy(message[offset:], []byte(protocolName))
-	offset += protocolReservedBytes
+	offset += copy(message[offset:], protocolNameBytes)
+	offset += copy(message[offset:], protocolReservedBytes[:])
 	offset += copy(message[offset:], hash[:])
 	copy(message[offset:], []byte(defaultClientId))
 
@@ -37,6 +43,11 @@ func NewHandshakeRequest(hash Hash) []byte {
 }
 
 func NewHandshakeRequestExt(hash Hash) []byte {
+	handshake := NewHandshakeRequest(hash)
+
+	handshake[magnetExtensionPos] = magnetExtensionFlag
+
+	return handshake
 }
 
 func intToBytes(n int, buf []byte) {

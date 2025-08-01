@@ -22,13 +22,17 @@ func NewMagnetLink(linkStr string) MagnetLink {
 	checksum, content, _ := strings.Cut(content, "&")
 	filename, trackerUrl, _ := strings.Cut(content, "&")
 
-	decodedUrl, _ := url.QueryUnescape(trackerUrl)
-
 	return MagnetLink{
 		checksum:   newHash(checksum),
 		filename:   filename[3:],
-		trackerUrl: decodedUrl[3:],
+		trackerUrl: trackerUrl[3:],
 	}
+}
+
+func (link MagnetLink) decodeUrl() string {
+	decoded, _ := url.QueryUnescape(link.trackerUrl)
+
+	return decoded
 }
 
 func CmdMagnetParse(url string) string {
@@ -36,7 +40,7 @@ func CmdMagnetParse(url string) string {
 
 	return fmt.Sprintf(
 		"Tracker URL: %s\nInfo Hash: %s",
-		link.trackerUrl,
+		link.decodeUrl(),
 		link.checksum,
 	)
 }

@@ -378,3 +378,19 @@ func CmdPeers(path string) (s string) {
 
 	return strings.Join(peers, "\n")
 }
+
+func CmdMagnetHandshake(linkStr string) string {
+	link := NewMagnetLink(linkStr)
+
+	res, err := http.Get(link.decodeUrl())
+	if err != nil {
+		panic(err)
+	}
+
+	body, _ := io.ReadAll(res.Body)
+
+	log.Println(body)
+	// handshake := NewHandshakeRequestExt(link.checksum)
+
+	return ""
+}
