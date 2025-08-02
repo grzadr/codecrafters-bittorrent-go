@@ -18,8 +18,8 @@ const (
 	msgLengthBytes     = 4
 	requestFieldsNum   = 3
 	// protocoLength      = 19.
-	protocolName        = "\x13BitTorrent protocol"
-	magnetExtensionPos  = 5
+	protocolName = "\x13BitTorrent protocol"
+	// magnetExtensionPos  = 5.
 	magnetExtensionFlag = 0x10
 	// 	handshakePrefix       = "\x13Bit"
 	// 	handshakePrefixLength = len(handshakePrefix)
@@ -28,6 +28,7 @@ const (
 var (
 	protocolReservedBytes = [8]byte{}
 	protocolNameBytes     = []byte(protocolName)
+	magnetExtensionPos    = len(protocolNameBytes) + 5
 )
 
 func NewHandshakeRequest(hash Hash) []byte {
