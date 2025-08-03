@@ -164,7 +164,7 @@ func (p *TorrentPiece) download(peer *TorrentPeer) bool {
 			}
 
 			if response.Err != nil || response.Type != Piece {
-				log.Println(response)
+				// log.Println(response)
 				peer.reconnect()
 
 				return false
@@ -175,7 +175,7 @@ func (p *TorrentPiece) download(peer *TorrentPeer) bool {
 
 			delete(keys, piece.key())
 
-			log.Println(piece.begin, piece.index, hex.Dump(piece.block[:16]))
+			// log.Println(piece.begin, piece.index, hex.Dump(piece.block[:16]))
 		}
 
 		peer.resetTimeout()
@@ -245,8 +245,6 @@ func CmdDownloadPiece(downloadPath, torrentPath string, index int) {
 	}
 	defer mng.close()
 
-	log.Println("creating piece")
-
 	piece := NewTorrentPiece(index, info)
 
 	go mng.queue()
@@ -287,7 +285,6 @@ func CmdDownload(downloadPath, torrentPath string) {
 	go file.schedule(mng)
 	go file.collect(mng)
 	file.wait()
-	log.Println("wait complete")
 
 	file.write(downloadPath)
 }

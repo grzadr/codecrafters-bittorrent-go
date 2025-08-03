@@ -4,11 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"iter"
-	"log"
+	"slices"
 )
 
 const (
@@ -72,6 +71,13 @@ const (
 	Piece
 	Cancel
 	Handshake
+	Extension = 20
+)
+
+type ExtensionType int
+
+const (
+	ExtensionHandshake ExtensionType = iota
 )
 
 var messageTypeNames = [...]string{
@@ -88,6 +94,10 @@ var messageTypeNames = [...]string{
 }
 
 func (m MessageType) String() string {
+	if m == Extension {
+		return "Extension"
+	}
+
 	if m < 0 || int(m) >= len(messageTypeNames) {
 		panic(fmt.Sprintf("unknown MessageType(%d)", int(m)))
 	}
@@ -116,8 +126,6 @@ func NewHandshakeMessage(reader *bufio.Reader) (msg Message) {
 		return msg
 	}
 
-	log.Println(hex.Dump(msg.content))
-
 	return
 }
 
@@ -129,7 +137,6 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 			msg := Message{}
 
 			if _, msg.Err = io.ReadFull(reader, sizeBuf); msg.Err == io.EOF {
-				// log.Println("EOF:", hex.Dump(sizeBuf))
 				return
 			} else if msg.Err != nil {
 				msg.Err = fmt.Errorf("error reading length: %w", msg.Err)
@@ -184,6 +191,38 @@ func NewMessage(reader *bufio.Reader) iter.Seq[Message] {
 	}
 }
 
+func NewInterestedMsg() Message {
+	return Message{
+		Type:    Interested,
+		content: []byte{},
+	}
+}
+
+func newExtensionHandshake() Message {
+	payload := slices.Concat(
+		[]byte{0},
+		BencodedMap{
+			"m": BencodedMap{
+				"ut_metadata": BencodedInteger(1),
+			},
+		}.Encode())
+
+	return Message{
+		Type:    Extension,
+		content: payload,
+	}
+}
+
+func (m Message) encode() (msg []byte) {
+	contentLength := len(m.content) + 1
+	msg = make([]byte, msgLengthBytes+contentLength)
+	intToBytes(contentLength, msg)
+	msg[msgLengthBytes] = byte(m.Type)
+	copy(msg[msgLengthBytes+1:], m.content[:])
+
+	return
+}
+
 type RequestMessage struct {
 	index int
 	begin int
@@ -214,37 +253,13 @@ type PieceMessage struct {
 }
 
 func NewPiecePayload(data []byte) (piece PieceMessage) {
-	// log.Println("NewPiecePayload\n", hex.Dump(data[:16]))
-	// msg, _ := NewMessage(data)
-	// if msg.msgType != Piece {
-	// 	panic(fmt.Sprintf("expected %q, got %q", Piece, msg.msgType))
-	// }
 	piece.index = bytesToInt(data[:int32Size])
 	piece.begin = bytesToInt(data[int32Size : int32Size*2])
 	piece.block = data[int32Size*2:]
-
-	log.Println("piece:", piece.index, piece.begin, len(piece.block))
 
 	return
 }
 
 func (p PieceMessage) key() BlockKey {
 	return BlockKey{index: p.index, begin: p.begin}
-}
-
-func NewInterestedMsg() Message {
-	return Message{
-		Type:    Interested,
-		content: []byte{},
-	}
-}
-
-func (m Message) encode() (msg []byte) {
-	contentLength := len(m.content) + 1
-	msg = make([]byte, msgLengthBytes+contentLength)
-	intToBytes(contentLength, msg)
-	msg[msgLengthBytes] = byte(m.Type)
-	copy(msg[msgLengthBytes+1:], m.content[:])
-
-	return
 }

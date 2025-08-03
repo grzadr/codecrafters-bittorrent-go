@@ -126,17 +126,7 @@ func CmdMagnetParse(url string) string {
 func CmdMagnetHandshake(linkStr string) string {
 	link := NewMagnetLink(linkStr)
 
-	// res, err := http.Get(link.trackerUrl)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// body, _ := io.ReadAll(res.Body)
-
-	// log.Println(body)
-
 	peersIp := link.requestPeers()
-	// handshake := NewHandshakeRequestExt(link.checksum)
 
 	handshake := NewHandshakeRequestExt(link.checksum)
 

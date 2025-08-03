@@ -238,6 +238,34 @@ func (peer *TorrentPeer) dial() (err error) {
 	return
 }
 
+func (peer *TorrentPeer) magnet() error {
+	if err := peer.write(newExtensionHandshake().encode()); err != nil {
+		return fmt.Errorf("error sending extension handshake: %w", err)
+	}
+
+	found := false
+
+	for msg := range NewMessage(peer.reader) {
+		if msg.Err != nil {
+			return fmt.Errorf("failed to read unchoke: %w", msg.Err)
+		}
+
+		if msg.Type == Extension {
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf(
+			"error sending extension handshake: missing valid response",
+		)
+	}
+
+	return nil
+}
+
 func (peer *TorrentPeer) interested() error {
 	if err := peer.write(NewInterestedMsg().encode()); err != nil {
 		return fmt.Errorf("error sending interested: %w", err)
@@ -251,7 +279,6 @@ func (peer *TorrentPeer) interested() error {
 		}
 
 		if msg.Type == Unchoke {
-			// log.Println("received unchoke")
 			found = true
 
 			break
@@ -269,7 +296,7 @@ func (peer *TorrentPeer) interested() error {
 
 func (peer *TorrentPeer) handshake(
 	handshake []byte,
-) error {
+) (err error) {
 	if err := peer.write(handshake); err != nil {
 		return err
 	}
@@ -300,13 +327,11 @@ func (peer *TorrentPeer) handshake(
 
 	peer.owned = response.content
 
-	log.Printf("%08b", peer.owned)
-
 	if handshake[magnetExtensionPos] == magnetExtensionFlag {
-		return nil
+		err = peer.magnet()
+	} else {
+		err = peer.interested()
 	}
-
-	err := peer.interested()
 
 	return err
 }

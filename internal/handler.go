@@ -50,10 +50,8 @@ func (mng *TorrentManager) close() {
 
 func (mng *TorrentManager) download(piece *TorrentPiece, peer *TorrentPeer) {
 	if piece.download(peer) {
-		log.Printf("downloaded piece %d\n", piece.index)
 		mng.done <- piece
 	} else {
-		log.Printf("rescheduling piece %d\n", piece.index)
 		piece.reset()
 		mng.recv <- piece
 	}
@@ -62,15 +60,11 @@ func (mng *TorrentManager) download(piece *TorrentPiece, peer *TorrentPeer) {
 }
 
 func (mng *TorrentManager) schedule(piece *TorrentPiece) {
-	log.Printf("scheduling piece %d\n", piece.index)
-
 	for {
 		for peer := range mng.available {
 			if piece.visited(peer.addr) {
 				mng.available <- peer
 			}
-
-			log.Printf("picked peer %q for piece %d\n", peer.addr, piece.index)
 
 			go mng.download(piece, peer)
 
@@ -167,8 +161,6 @@ func (h *TorrentHandler) exec() {
 			time.After(defaultSendRetryTime)
 		}
 
-		// log.Printf("sending %d messages", count)
-
 		h.peer.write(writeBuff)
 
 		next, stop := iter.Pull(NewMessage(h.peer.reader))
@@ -182,7 +174,6 @@ func (h *TorrentHandler) exec() {
 			}
 
 			if msg.Err != nil {
-				// panic(msg.Err)
 				log.Println(msg.Err)
 				h.peer.reconnect()
 				clear(h.keys)
@@ -192,11 +183,8 @@ func (h *TorrentHandler) exec() {
 
 			if msg.Type != Piece {
 				log.Println(msg)
-				panic("")
-				// continue
+				panic(fmt.Errorf("expected piece, found %q", msg.Type))
 			}
-
-			// log.Println(hex.Dump(msg.content[:16]))
 
 			payload := NewPiecePayload(msg.content)
 
