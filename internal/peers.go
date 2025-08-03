@@ -254,11 +254,7 @@ func (peer *TorrentPeer) magnet() error {
 		if msg.Type == Extension {
 			found = true
 
-			log.Println(hex.Dump(msg.content))
-
-			spec := NewBencodedMap(NewByteIterator(string(msg.content[1:])))
-
-			log.Println(spec.String())
+			spec := NewBencoded(NewByteIterator(string(msg.content[1:]))).(BencodedMap)
 
 			peer.ut_metadata = int(
 				spec.at("m").(BencodedMap).at("ut_metadata").(BencodedInteger),
