@@ -154,12 +154,13 @@ func (req DiscoverRequest) peers() (p []*net.TCPAddr) {
 }
 
 type TorrentPeer struct {
-	id      string
-	request []byte
-	owned   []byte
-	conn    *net.TCPConn
-	addr    *net.TCPAddr
-	reader  *bufio.Reader
+	id          string
+	request     []byte
+	owned       []byte
+	conn        *net.TCPConn
+	addr        *net.TCPAddr
+	reader      *bufio.Reader
+	ut_metadata int
 }
 
 func NewTorrentPeer(
@@ -252,6 +253,16 @@ func (peer *TorrentPeer) magnet() error {
 
 		if msg.Type == Extension {
 			found = true
+
+			log.Println(hex.Dump(msg.content))
+
+			spec := NewBencodedMap(NewByteIterator(string(msg.content[1:])))
+
+			log.Println(spec.String())
+
+			peer.ut_metadata = int(
+				spec.at("m").(BencodedMap).at("ut_metadata").(BencodedInteger),
+			)
 
 			break
 		}

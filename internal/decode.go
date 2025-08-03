@@ -244,6 +244,10 @@ func (b BencodedMap) Encode() (encoded []byte) {
 	return
 }
 
+func (b BencodedMap) at(key string) Bencoded {
+	return b[key]
+}
+
 func (b BencodedMap) isBencoded() {}
 
 func NewBencoded(iter *ByteIterator) Bencoded {

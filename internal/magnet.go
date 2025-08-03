@@ -62,7 +62,7 @@ func (link MagnetLink) prepareQuery() *url.URL {
 
 	u.RawQuery = link.prepareParams().Encode()
 
-	fmt.Printf("Query: %s\n", u)
+	// fmt.Printf("Query: %s\n", u)
 
 	return u
 }
@@ -93,7 +93,7 @@ func (link MagnetLink) sendRequest() BencodedMap {
 		panic(fmt.Errorf("error reading response: %w", err))
 	}
 
-	fmt.Printf("Response: %s\n", body)
+	// fmt.Printf("Response: %s\n", body)
 
 	return NewBencoded(NewByteIteratorBytes(body)).(BencodedMap)
 }
@@ -137,7 +137,8 @@ func CmdMagnetHandshake(linkStr string) string {
 	defer peer.close()
 
 	return fmt.Sprintf(
-		"Peer ID: %s",
+		"Peer ID: %s\nPeer Metadata Extension ID: %d",
 		peer.id,
+		peer.ut_metadata,
 	)
 }
