@@ -3,7 +3,6 @@ package internal
 import (
 	"bytes"
 	"crypto/sha1"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"iter"
@@ -174,7 +173,6 @@ func (p *TorrentPiece) download(peer *TorrentPeer) bool {
 			p.insert(piece)
 
 			delete(keys, piece.key())
-
 			// log.Println(piece.begin, piece.index, hex.Dump(piece.block[:16]))
 		}
 
