@@ -242,12 +242,13 @@ func CmdMagnetDownload(downloadPath, linkStr string) {
 	if err != nil {
 		panic(err)
 	}
-	defer peer.close()
 
 	magnetInfo, err := peer.magnetInfo()
 	if err != nil {
 		panic(err)
 	}
+
+	peer.close()
 
 	log.Println(magnetInfo)
 
