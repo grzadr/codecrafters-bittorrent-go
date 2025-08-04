@@ -164,8 +164,14 @@ func CmdMagnetInfo(linkStr string) string {
 
 	log.Println(info)
 
-	return fmt.Sprintf(
-		"Tracker URL: %s",
-		link.trackerUrl,
-	)
+	return NewTorrentInfoWithTracker(link.trackerUrl, info).desc()
+	// return fmt.Sprintf(
+	//
+	//	"Tracker URL: %s\nLength: %d\nHash: %s\nPiece Length: %d",
+	//	link.trackerUrl,
+	//	info.at("length").(BencodedInteger),
+	//	sha1.Sum(info.Encode()),
+	//	info.at("piece length").(BencodedInteger),
+	//
+	// )
 }

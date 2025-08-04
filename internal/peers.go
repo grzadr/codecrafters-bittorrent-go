@@ -294,7 +294,6 @@ func (peer *TorrentPeer) magnetInfo() (info BencodedMap, err error) {
 		if msg.Type == Extension {
 			found = true
 			iter := NewByteIterator(string(msg.content[1:]))
-
 			NewBencoded(iter)
 
 			if item := NewBencoded(iter); item != nil {

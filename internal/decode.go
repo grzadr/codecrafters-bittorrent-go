@@ -212,9 +212,14 @@ func NewBencodedMap(iter *ByteIterator) (m BencodedMap) {
 
 	for {
 		key := NewBencoded(iter)
+
+		if key == nil {
+			break
+		}
+
 		value := NewBencoded(iter)
 
-		if key == nil || value == nil {
+		if value == nil {
 			break
 		}
 
@@ -246,6 +251,10 @@ func (b BencodedMap) Encode() (encoded []byte) {
 
 func (b BencodedMap) at(key string) Bencoded {
 	return b[key]
+}
+
+func (b *BencodedMap) set(key string, value Bencoded) {
+	(*b)[key] = value
 }
 
 func (b BencodedMap) isBencoded() {}

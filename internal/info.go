@@ -62,11 +62,12 @@ type TorrentInfo struct {
 	pieceLength int
 }
 
-func NewTorrentInfo(torrent BencodedMap) *TorrentInfo {
-	info := torrent["info"].(BencodedMap)
-
+func NewTorrentInfoWithTracker(
+	trackerUrl string,
+	info BencodedMap,
+) *TorrentInfo {
 	return &TorrentInfo{
-		tracker:     torrent["announce"].String(),
+		tracker:     trackerUrl,
 		hash:        sha1.Sum(info.Encode()),
 		pieces:      NewPieceHashes(info["pieces"].(BencodedString)),
 		length:      int(info["length"].(BencodedInteger)),
@@ -74,19 +75,40 @@ func NewTorrentInfo(torrent BencodedMap) *TorrentInfo {
 	}
 }
 
+func NewTorrentInfo(torrent BencodedMap) *TorrentInfo {
+	info := torrent["info"].(BencodedMap)
+
+	return NewTorrentInfoWithTracker(torrent["announce"].String(), info)
+}
+
+func (info TorrentInfo) desc() string {
+	return fmt.Sprintf(
+		"Tracker URL: %s\nLength: %d\nInfo Hash: %s\nPiece Length: %d\nPiece Hashes:\n%s",
+		info.tracker,
+		info.length,
+		info.hash,
+		info.pieceLength,
+		strings.Join(info.pieces.ToString(), "\n"),
+	)
+}
+
 func ParseTorrentFile(path string) *TorrentInfo {
 	return NewTorrentInfo(decodeTorrentFile(path).(BencodedMap))
 }
 
 func CmdInfo(path string) string {
-	parsed := NewTorrentInfo(decodeTorrentFile(path).(BencodedMap))
+	info := NewTorrentInfo(decodeTorrentFile(path).(BencodedMap))
 
-	return fmt.Sprintf(
-		"Tracker URL: %s\nLength: %d\nInfo Hash: %s\nPiece Length: %d\nPiece Hashes:\n%s",
-		parsed.tracker,
-		parsed.length,
-		parsed.hash,
-		parsed.pieceLength,
-		strings.Join(parsed.pieces.ToString(), "\n"),
-	)
+	return info.desc()
+	// return fmt.Sprintf(
+	//
+	// 	"Tracker URL: %s\nLength: %d\nInfo Hash: %s\nPiece Length: %d\nPiece
+	// Hashes:\n%s",
+	//	parsed.tracker,
+	//	parsed.length,
+	//	parsed.hash,
+	//	parsed.pieceLength,
+	//	strings.Join(parsed.pieces.ToString(), "\n"),
+	//
+	// )
 }
