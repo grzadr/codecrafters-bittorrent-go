@@ -213,6 +213,20 @@ func newExtensionHandshake() Message {
 	}
 }
 
+func newExtensionRequest(id byte) Message {
+	payload := slices.Concat(
+		[]byte{id},
+		BencodedMap{
+			"msg_type": BencodedInteger(0),
+			"piece":    BencodedInteger(0),
+		}.Encode())
+
+	return Message{
+		Type:    Extension,
+		content: payload,
+	}
+}
+
 func (m Message) encode() (msg []byte) {
 	contentLength := len(m.content) + 1
 	msg = make([]byte, msgLengthBytes+contentLength)

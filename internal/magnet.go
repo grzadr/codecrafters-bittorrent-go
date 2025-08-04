@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -140,5 +141,31 @@ func CmdMagnetHandshake(linkStr string) string {
 		"Peer ID: %s\nPeer Metadata Extension ID: %d",
 		peer.id,
 		peer.ut_metadata,
+	)
+}
+
+func CmdMagnetInfo(linkStr string) string {
+	link := NewMagnetLink(linkStr)
+
+	peersIp := link.requestPeers()
+
+	handshake := NewHandshakeRequestExt(link.checksum)
+
+	peer, err := NewTorrentPeer(ParsePeerIP(peersIp[0].String()), handshake)
+	if err != nil {
+		panic(err)
+	}
+	defer peer.close()
+
+	info, err := peer.magnetInfo()
+	if err != nil {
+		panic(err)
+	}
+
+	log.Println(info)
+
+	return fmt.Sprintf(
+		"Tracker URL: %s",
+		link.trackerUrl,
 	)
 }

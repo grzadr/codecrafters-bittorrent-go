@@ -248,7 +248,10 @@ func (peer *TorrentPeer) magnet() error {
 
 	for msg := range NewMessage(peer.reader) {
 		if msg.Err != nil {
-			return fmt.Errorf("failed to read unchoke: %w", msg.Err)
+			return fmt.Errorf(
+				"failed to read extension handshake response: %w",
+				msg.Err,
+			)
 		}
 
 		if msg.Type == Extension {
@@ -271,6 +274,44 @@ func (peer *TorrentPeer) magnet() error {
 	}
 
 	return nil
+}
+
+func (peer *TorrentPeer) magnetInfo() (info BencodedMap, err error) {
+	if err := peer.write(newExtensionRequest(byte(peer.ut_metadata)).encode()); err != nil {
+		return info, fmt.Errorf("error sending extension request: %w", err)
+	}
+
+	found := false
+
+	for msg := range NewMessage(peer.reader) {
+		if msg.Err != nil {
+			return info, fmt.Errorf(
+				"failed to read extension request response: %w",
+				msg.Err,
+			)
+		}
+
+		if msg.Type == Extension {
+			found = true
+			iter := NewByteIterator(string(msg.content[1:]))
+
+			NewBencoded(iter)
+
+			if item := NewBencoded(iter); item != nil {
+				info = item.(BencodedMap)
+			}
+
+			break
+		}
+	}
+
+	if !found {
+		return info, fmt.Errorf(
+			"error sending extension handshake: missing valid response",
+		)
+	}
+
+	return info, err
 }
 
 func (peer *TorrentPeer) interested() error {

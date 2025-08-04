@@ -32,6 +32,8 @@ func main() {
 		fmt.Println(internal.CmdMagnetParse(os.Args[2]))
 	case "magnet_handshake":
 		fmt.Println(internal.CmdMagnetHandshake(os.Args[2]))
+	case "magnet_info":
+		fmt.Println(internal.CmdMagnetInfo(os.Args[2]))
 	default:
 		log.Fatalf("Unknown command: %q", command)
 	}
