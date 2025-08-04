@@ -34,6 +34,11 @@ func main() {
 		fmt.Println(internal.CmdMagnetHandshake(os.Args[2]))
 	case "magnet_info":
 		fmt.Println(internal.CmdMagnetInfo(os.Args[2]))
+	case "magnet_download_piece":
+		index, _ := strconv.Atoi(os.Args[5])
+		internal.CmdMagnetDownloadPiece(os.Args[3], os.Args[4], index)
+	case "magnet_download":
+		internal.CmdMagnetDownload(os.Args[3], os.Args[4])
 	default:
 		log.Fatalf("Unknown command: %q", command)
 	}

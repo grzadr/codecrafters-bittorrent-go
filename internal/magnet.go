@@ -2,15 +2,18 @@ package internal
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func decodeHexString(hexStr string) ([]byte, error) {
@@ -157,14 +160,14 @@ func CmdMagnetInfo(linkStr string) string {
 	}
 	defer peer.close()
 
-	info, err := peer.magnetInfo()
+	magnetInfo, err := peer.magnetInfo()
 	if err != nil {
 		panic(err)
 	}
 
-	log.Println(info)
+	log.Println(magnetInfo)
 
-	return NewTorrentInfoWithTracker(link.trackerUrl, info).desc()
+	return NewTorrentInfoWithTracker(link.trackerUrl, magnetInfo).desc()
 	// return fmt.Sprintf(
 	//
 	//	"Tracker URL: %s\nLength: %d\nHash: %s\nPiece Length: %d",
@@ -174,4 +177,95 @@ func CmdMagnetInfo(linkStr string) string {
 	//	info.at("piece length").(BencodedInteger),
 	//
 	// )
+}
+
+func CmdMagnetDownloadPiece(downloadPath, linkStr string, index int) {
+	link := NewMagnetLink(linkStr)
+
+	peersIp := link.requestPeers()
+
+	handshake := NewHandshakeRequestExt(link.checksum)
+
+	peer, err := NewTorrentPeer(ParsePeerIP(peersIp[0].String()), handshake)
+	if err != nil {
+		panic(err)
+	}
+	defer peer.close()
+
+	magnetInfo, err := peer.magnetInfo()
+	if err != nil {
+		panic(err)
+	}
+
+	log.Println(magnetInfo)
+
+	info := NewTorrentInfoWithTracker(link.trackerUrl, magnetInfo)
+
+	mng, err := newTorrentManager(info)
+	if err != nil {
+		panic(err)
+	}
+	defer mng.close()
+
+	piece := NewTorrentPiece(index, info)
+
+	go mng.queue()
+	mng.schedule(piece)
+
+	select {
+	case piece = <-mng.done:
+	case <-time.After(defaultReadTimeout):
+		panic(fmt.Errorf("piece %d download timeout", index))
+	}
+
+	log.Printf("writing %d bytes to %q", len(piece.block), downloadPath)
+
+	if err := os.WriteFile(downloadPath, piece.block, defaultFileMode); err != nil {
+		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
+	}
+
+	if _, err := os.Stat(downloadPath); errors.Is(err, os.ErrNotExist) {
+		panic(fmt.Errorf("error writing file to %q: %w", downloadPath, err))
+	}
+
+	log.Println("file saved")
+}
+
+func CmdMagnetDownload(downloadPath, linkStr string) {
+	link := NewMagnetLink(linkStr)
+
+	peersIp := link.requestPeers()
+
+	handshake := NewHandshakeRequestExt(link.checksum)
+
+	peer, err := NewTorrentPeer(ParsePeerIP(peersIp[0].String()), handshake)
+	if err != nil {
+		panic(err)
+	}
+	defer peer.close()
+
+	magnetInfo, err := peer.magnetInfo()
+	if err != nil {
+		panic(err)
+	}
+
+	log.Println(magnetInfo)
+
+	info := NewTorrentInfoWithTracker(link.trackerUrl, magnetInfo)
+
+	mng, err := newTorrentManager(info)
+	if err != nil {
+		panic(err)
+	}
+
+	defer mng.close()
+
+	go mng.queue()
+
+	file := newTorrentFile(info)
+	go file.schedule(mng)
+	go file.collect(mng)
+	file.wait()
+
+	file.write(downloadPath)
 }
